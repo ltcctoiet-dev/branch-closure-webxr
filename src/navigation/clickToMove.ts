@@ -21,10 +21,19 @@ import { snapPoints } from "../environments/room";
  * rather than two. It also needs no keyboard, which matters when the person
  * using this may not be confident with computers.
  *
- * Session 2 hands these same six positions to the Quest controllers.
+ * NEW IN SESSION 2 — the on/off switch below.
+ * In VR, the controller's pointer also counts as a click. Without this switch,
+ * aiming at a disc would teleport you AND slide the desktop camera at the same
+ * time. So we turn clicking off whenever VR starts, and back on when it ends.
  */
 
 const MOVE_DURATION_MS = 420;
+
+let enabled = true;
+
+export function setClickToMoveEnabled(value: boolean): void {
+  enabled = value;
+}
 
 export function attachClickToMove(
   scene: Scene,
@@ -35,6 +44,8 @@ export function attachClickToMove(
   let hovered: AbstractMesh | null = null;
 
   scene.onPointerObservable.add((info) => {
+    if (!enabled) return;
+
     const picked = info.pickInfo?.pickedMesh ?? null;
     const isMarker = picked !== null && markerIds.has(picked.name);
 
