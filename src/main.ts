@@ -1,20 +1,20 @@
 import "./style.css";
-import { Color4, Scene } from "@babylonjs/core";
+import { Color4, Scene, type Camera, type WebXRDefaultExperience } from "@babylonjs/core";
 import { createEngine } from "./core/engine";
 import { colours } from "./core/theme";
+import { store } from "./core/store";
+import { router } from "./core/router";
+import { createSceneStep } from "./core/sceneStep";
+import { loadScenes } from "./content/schema";
 import { createRoom } from "./environments/room";
 import { attachClickToMove, setClickToMoveEnabled } from "./navigation/clickToMove";
 import { initialiseWebXR } from "./xr/session";
+import { Panel } from "./ui/Panel";
+import { SubtitleBar } from "./ui/SubtitleBar";
+import { HelpButton } from "./ui/HelpButton";
 
 /**
- * The starting point. Everything happens in the order written below.
- *
- * CHANGED IN SESSION 2: this function is now `async`, and has an `await` in it.
- *
- * That's because asking the browser "can you do VR?" takes a moment, and the
- * answer arrives later. `await` means "wait here for the answer before carrying
- * on". Any function containing `await` has to be marked `async` — that's the
- * only reason the word appears.
+ * The starting point. Read top to bottom and you know what the app does.
  */
 
 async function start(): Promise<void> {
@@ -25,42 +25,59 @@ async function start(): Promise<void> {
     );
   }
 
-  // 1. Start the renderer.
+  // 1. Renderer and empty scene.
   const engine = createEngine(canvas);
-
-  // 2. Make an empty scene and set the colour beyond the room.
   const scene = new Scene(engine);
   scene.clearColor = Color4.FromHexString(`${colours.background}FF`);
 
-  // 3. Build the room. This also creates the camera and the floor discs.
-  const { camera, floor, markers } = createRoom(scene);
+  // 2. The room, the camera, the floor discs.
+  const { camera: desktopCamera, floor, markers } = createRoom(scene);
+  attachClickToMove(scene, desktopCamera, markers);
 
-  // 4. Make the discs clickable on desktop.
-  attachClickToMove(scene, camera, markers);
+  // 3. The things the customer reads.
+  const panel = new Panel(scene);
+  const subtitles = new SubtitleBar(scene);
+  const help = new HelpButton(scene);
 
-  // 5. Turn on VR. The floor is passed in so the headset knows what counts as
-  //    ground. The callback switches desktop clicking off while you're in VR,
-  //    so the two ways of moving don't fight each other.
-  await initialiseWebXR(scene, [floor], (inVr) => {
+  // Subtitles and the help button ride along with whichever camera is in use.
+  const followCamera = (which: Camera) => {
+    subtitles.attachTo(which);
+    help.attachTo(which);
+  };
+  followCamera(desktopCamera);
+
+  // 4. Load the script. If anything in scenes.json is wrong, this throws and
+  //    the message appears on screen — better than a blank panel mid-demo.
+  const scenes = await loadScenes();
+  console.log(`Loaded ${scenes.size} scenes.`);
+
+  router.registerAll(
+    [...scenes.values()].map((record) => createSceneStep(record, { panel, subtitles, scene })),
+  );
+
+  // 5. VR. Same as Session 2, plus swapping which camera the subtitles follow.
+  let xr: WebXRDefaultExperience | null = null;
+  const setup = await initialiseWebXR(scene, [floor], (inVr) => {
     setClickToMoveEnabled(!inVr);
+    store.set({ inVr });
+    followCamera(inVr && xr ? xr.baseExperience.camera : desktopCamera);
   });
+  xr = setup.xr;
 
   // 6. Draw, forever.
   engine.runRenderLoop(() => scene.render());
 
-  console.log("Session 2 ready. Click a disc to move, or press Enter VR.");
+  // 7. Begin the journey.
+  await router.goto("welcome.calm");
+  console.log("Session 3 ready.");
 }
 
-// If anything above fails, say so on screen rather than showing a black page.
-//
-// `.catch()` here does the same job the try/catch did in Session 1 — an async
-// function reports its failures this way instead.
 start().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(error);
   const fallback = document.getElementById("fallbackMessage");
   if (fallback) {
-    fallback.textContent = `The scene could not start: ${message}`;
+    fallback.textContent = `Could not start: ${message}`;
     fallback.hidden = false;
   }
 });

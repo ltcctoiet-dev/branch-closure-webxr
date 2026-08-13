@@ -1,0 +1,157 @@
+[
+  {
+    "id": "welcome.calm",
+    "scenario": 1,
+    "title": "Welcome",
+    "audioKey": "s01_welcome",
+    "narration": [
+      "Welcome. This experience has been created to help you understand how your banking support will continue after your local branch closure.",
+      "You are in control throughout this experience. You can pause, repeat, go back or ask for a colleague to help at any time.",
+      "Before we begin, I will help you choose the settings that make this experience most comfortable for you."
+    ],
+    "choices": [
+      { "id": "continue", "label": "Continue", "goto": "welcome.accessibility" }
+    ]
+  },
+
+  {
+    "id": "welcome.accessibility",
+    "scenario": 1,
+    "title": "Choose your support options",
+    "audioKey": "s01_accessibility",
+    "multiSelect": true,
+    "narration": [
+      "Please choose any support options that would make this experience easier for you.",
+      "You can select more than one option.",
+      "If you would prefer a colleague to help you, please select colleague-assisted mode."
+    ],
+    "choices": [
+      { "id": "largeText", "label": "Larger text", "toggles": "largeText" },
+      { "id": "highContrast", "label": "High contrast", "toggles": "highContrast" },
+      { "id": "subtitles", "label": "Subtitles", "toggles": "subtitlesEnabled" },
+      { "id": "voice", "label": "Voice guidance", "toggles": "voiceEnabled" },
+      { "id": "lowMotion", "label": "Low-motion mode", "toggles": "lowMotion" },
+      { "id": "seated", "label": "Seated mode", "toggles": "seatedMode" },
+      { "id": "moreTime", "label": "More time to read", "toggles": "extraReadingTime" },
+      { "id": "colleague", "label": "Colleague-assisted mode", "toggles": "colleagueAssisted" },
+      { "id": "continue", "label": "Continue", "goto": "survey.confidence" },
+      { "id": "exit", "label": "Exit experience", "exits": true }
+    ]
+  },
+
+  {
+    "id": "survey.confidence",
+    "scenario": 2,
+    "title": "A few short questions",
+    "audioKey": "s02_survey",
+    "narration": [
+      "Before I show the banking alternatives, I would like to ask a few short questions.",
+      "These questions help us understand whether this experience improves your confidence.",
+      "There are no right or wrong answers."
+    ],
+    "scales": [
+      {
+        "id": "concernBefore",
+        "prompt": "How concerned do you feel about your local branch closing?",
+        "minLabel": "Not concerned",
+        "maxLabel": "Very concerned"
+      },
+      {
+        "id": "wayfindingConfidenceBefore",
+        "prompt": "How confident are you that you know where to go for banking after the branch closes?",
+        "minLabel": "Not confident",
+        "maxLabel": "Very confident"
+      },
+      {
+        "id": "mobileConfidenceBefore",
+        "prompt": "How confident are you using mobile banking?",
+        "minLabel": "Not confident",
+        "maxLabel": "Very confident"
+      }
+    ],
+    "choices": [
+      { "id": "continue", "label": "Continue", "goto": "concern.options" }
+    ]
+  },
+
+  {
+    "id": "concern.options",
+    "scenario": 4,
+    "title": "Is there anything you are worried about?",
+    "audioKey": "s04_concerns",
+    "narration": [
+      "Before we continue, would you like to share any concerns or reactions about the branch closure?",
+      "You can select from the options, or skip this step."
+    ],
+    "choices": [
+      { "id": "travel", "label": "I am worried about travelling further", "setsConcern": "travel", "goto": "concern.response" },
+      { "id": "cash", "label": "I need cash regularly", "setsConcern": "cash", "goto": "concern.response" },
+      { "id": "digital", "label": "I do not feel confident using mobile banking", "setsConcern": "digital", "goto": "concern.response" },
+      { "id": "human", "label": "I need help from a person", "setsConcern": "human", "goto": "concern.response" },
+      { "id": "accessibility", "label": "I have accessibility needs", "setsConcern": "accessibility", "goto": "concern.response" },
+      { "id": "privacy", "label": "I need privacy for my banking", "setsConcern": "privacy", "goto": "concern.response" },
+      { "id": "unsure", "label": "I am not sure what services are available elsewhere", "setsConcern": "unsure", "goto": "concern.response" },
+      { "id": "skip", "label": "I prefer not to say", "goto": "hub.counter" }
+    ]
+  },
+
+  {
+    "id": "concern.response",
+    "scenario": 4,
+    "title": "Thank you for telling me",
+    "audioKey": "s04_response",
+    "narration": [
+      "I will now shape the experience around this need.",
+      "You can change or add concerns later."
+    ],
+    "responses": {
+      "travel": "Thank you for sharing that. I will prioritise nearby options, distance, travel choices and whether the place offers the service you need.",
+      "cash": "Thank you. I will show cash access options first, including cash machines, Banking Hubs, Post Offices and other cash services where available.",
+      "digital": "Thank you. Later in this experience, I will show a safe practice version of mobile banking. No real account details or real money will be used.",
+      "human": "Thank you. I will make sure the journey shows where you can speak to a person, including branch colleagues, Community Bankers and support lines.",
+      "accessibility": "Thank you. I will keep accessibility support visible throughout the journey, including seating, subtitles, private space, low-motion mode and colleague assistance.",
+      "privacy": "Thank you. I will show where private conversations may be available, and I will avoid showing sensitive details on shared screens.",
+      "unsure": "Thank you. I will show what each nearby option can and cannot do, so you know before you travel."
+    },
+    "choices": [
+      { "id": "continue", "label": "Continue", "goto": "hub.counter" }
+    ]
+  },
+
+  {
+    "id": "pause.anxiety",
+    "scenario": 5,
+    "title": "We can pause here",
+    "audioKey": "s05_pause",
+    "interrupt": true,
+    "narration": [
+      "We can pause here.",
+      "You do not need to continue right now.",
+      "A colleague can support you if you would like.",
+      "You may take a seat, have some water and continue only when you are ready."
+    ],
+    "choices": [
+      { "id": "resume", "label": "Continue experience", "resume": true },
+      { "id": "colleague", "label": "Speak to a colleague", "toggles": "colleagueAssisted" },
+      { "id": "subtitlesOnly", "label": "Continue with subtitles only", "toggles": "voiceEnabled" },
+      { "id": "exit", "label": "Exit experience", "exits": true }
+    ]
+  },
+
+  {
+    "id": "hub.counter",
+    "scenario": 7,
+    "title": "The main counter",
+    "audioKey": "s07_counter",
+    "anchor": "counter",
+    "narration": [
+      "This is the main counter.",
+      "You can come here for everyday banking support.",
+      "For example, you may ask about cash withdrawal, cash deposit, cheque deposit or balance enquiry.",
+      "If you are unsure what to ask, you can simply say: I need help with my banking today."
+    ],
+    "choices": [
+      { "id": "back", "label": "Start again", "goto": "welcome.calm" }
+    ]
+  }
+]
