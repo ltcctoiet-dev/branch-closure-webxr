@@ -1,19 +1,22 @@
 import { Button, Control, Grid } from "@babylonjs/gui";
 import { sizes, uiPalette, uiText } from "../core/theme";
 import type { Choice } from "../content/schema";
+import { resolveTokens } from "../content/tokens";
 
 /**
  * The row of buttons at the bottom of a panel.
  *
- * Above five options it switches to two columns, because the accessibility
- * screen has ten and the concern screen has eight. In one column, at a font
- * size someone can actually read, they'd run off the bottom of the panel.
+ * NEW: buttons can be disabled. A Continue marked `requireAnswer` stays greyed
+ * out until the question above it has been answered — so nobody accidentally
+ * skips a survey question, and the survey data stays complete. It's also a
+ * clearer prompt than a nag message would be.
  */
 
 export function buildChoices(
   choices: Choice[],
   onPick: (choice: Choice) => void,
   isSelected?: (choice: Choice) => boolean,
+  isDisabled?: (choice: Choice) => boolean,
 ): Control {
   const ui = uiPalette();
   const text = uiText();
@@ -32,30 +35,44 @@ export function buildChoices(
   choices.forEach((choice, index) => {
     const column = twoColumns ? index % 2 : 0;
     const row = twoColumns ? Math.floor(index / 2) : index;
-    const selected = isSelected?.(choice) ?? false;
 
-    const button = Button.CreateSimpleButton(`choice_${choice.id}`, choice.label);
-    button.color = ui.textLight;
-    button.background = selected ? ui.selected : ui.action;
-    button.thickness = selected ? 5 : 2;
+    const selected = isSelected?.(choice) ?? false;
+    const disabled = isDisabled?.(choice) ?? false;
+
+    const button = Button.CreateSimpleButton(
+      `choice_${choice.id}`,
+      resolveTokens(choice.label),
+    );
     button.cornerRadius = 14;
     button.fontSize = text.button;
     button.width = "96%";
     button.height = "88%";
+
+    if (disabled) {
+      button.color = ui.textMuted;
+      button.background = ui.panel;
+      button.thickness = 2;
+      button.alpha = 0.45;
+      button.isEnabled = false;
+    } else {
+      button.color = ui.textLight;
+      button.background = selected ? ui.selected : ui.action;
+      button.thickness = selected ? 5 : 2;
+
+      button.onPointerEnterObservable.add(() => {
+        if (!isSelected?.(choice)) button.background = ui.actionHover;
+      });
+      button.onPointerOutObservable.add(() => {
+        button.background = isSelected?.(choice) ? ui.selected : ui.action;
+      });
+      button.onPointerUpObservable.add(() => onPick(choice));
+    }
 
     if (button.textBlock) {
       button.textBlock.textWrapping = true;
       button.textBlock.paddingLeft = "14px";
       button.textBlock.paddingRight = "14px";
     }
-
-    button.onPointerEnterObservable.add(() => {
-      if (!isSelected?.(choice)) button.background = ui.actionHover;
-    });
-    button.onPointerOutObservable.add(() => {
-      button.background = isSelected?.(choice) ? ui.selected : ui.action;
-    });
-    button.onPointerUpObservable.add(() => onPick(choice));
 
     grid.addControl(button, row, column);
   });

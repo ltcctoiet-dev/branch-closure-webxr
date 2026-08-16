@@ -1,0 +1,46 @@
+{
+  "_comment": "Wording for the final summary screen. Kept here rather than in code, same rule as scenes.json: nothing a customer reads is typed into a .ts file.",
+
+  "rows": {
+    "customer": "Your name",
+    "branch": "Closing branch",
+    "concern": "What you told me",
+    "visited": "Places you looked at",
+    "hub": "Nearest Banking Hub",
+    "communityBanker": "Community Banker",
+    "bring": "What to bring",
+    "ask": "What to say",
+    "confidence": "Your confidence"
+  },
+
+  "concerns": {
+    "travel": "Worried about travelling further",
+    "cash": "Needs cash regularly",
+    "digital": "Not yet confident with mobile banking",
+    "human": "Prefers help from a person",
+    "accessibility": "Has accessibility needs",
+    "privacy": "Needs privacy for banking",
+    "unsure": "Unsure what is available nearby",
+    "none": "You chose not to say"
+  },
+
+  "places": {
+    "hub": "Banking Hub",
+    "postOffice": "Post Office",
+    "mobile": "Mobile banking",
+    "support": "Human support options",
+    "none": "None yet"
+  },
+
+  "confidence": {
+    "before": "before",
+    "after": "now",
+    "notAnswered": "not answered",
+    "improved": "improved",
+    "unchanged": "unchanged",
+    "lower": "lower"
+  },
+
+  "bring": "Your bank card, any cheque you wish to pay in, and account details if you have them.",
+  "ask": "I need help with my banking today. If your conversation is private, say: I would like to speak privately about my account."
+}

@@ -1,0 +1,14 @@
+{
+  "_comment": "SYNTHETIC DEMONSTRATION DATA ONLY. No real customer, no real account, no real branch record. Change these values freely for different demo scenarios.",
+
+  "customerName": "Pat Morgan",
+  "branchName": "Welling High Street",
+  "branchDistance": "0.3 miles",
+
+  "hubName": "Welling Banking Hub",
+  "hubAddress": "97 Welling High Street",
+  "hubDistance": "0.4 miles",
+  "hubTravelTime": "about 9 minutes on foot",
+  "hubOpeningTimes": "Monday to Friday, 9am to 5pm",
+  "communityBankerDays": "Tuesdays and Thursdays"
+}

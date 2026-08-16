@@ -2,6 +2,7 @@ import type { Scene } from "@babylonjs/core";
 import { router, type Step } from "./router";
 import { store } from "./store";
 import type { Choice, SceneRecord } from "../content/schema";
+import { resolveTokens } from "../content/tokens";
 import type { Panel } from "../ui/Panel";
 import type { SubtitleBar } from "../ui/SubtitleBar";
 import { exportSession, recordAnswer, recordSceneVisit } from "../session/record";
@@ -9,9 +10,8 @@ import { exportSession, recordAnswer, recordSceneVisit } from "../session/record
 /**
  * Turns a scene from scenes.json into something the router can run.
  *
- * This is the file that makes the whole design pay off. Because every scene
- * goes through here, adding the remaining 38 scenes from the script means
- * writing JSON — no new code at all.
+ * Keep the `void` on the subtitles line — that's what keeps buttons live while
+ * narration is still playing. Don't turn it back into `await`.
  */
 
 export type StepTools = {
@@ -24,7 +24,7 @@ export function createSceneStep(record: SceneRecord, tools: StepTools): Step {
   return {
     id: record.id,
 
-    async enter() {
+    enter() {
       recordSceneVisit(record.id);
 
       tools.panel.setHandlers(
@@ -36,12 +36,13 @@ export function createSceneStep(record: SceneRecord, tools: StepTools): Step {
       if (camera) tools.panel.place(record, camera);
       tools.panel.show(record);
 
-      // If the customer picked a concern, that line is spoken first.
       const concern = store.get().selectedConcern;
       const personalLine = concern && record.responses ? record.responses[concern] : undefined;
-      const lines = personalLine ? [personalLine, ...record.narration] : record.narration;
+      const lines = (personalLine ? [personalLine, ...record.narration] : record.narration).map(
+        resolveTokens,
+      );
 
-      await tools.subtitles.play(lines);
+      void tools.subtitles.play(lines, record.audioKey);
     },
 
     exit() {
@@ -53,15 +54,28 @@ export function createSceneStep(record: SceneRecord, tools: StepTools): Step {
 async function handleChoice(choice: Choice, record: SceneRecord): Promise<void> {
   console.log(`Chose "${choice.id}" on scene "${record.id}"`);
 
-  // A setting was switched. On a multi-select screen we stay put — the panel
-  // redraws itself because the store told it to.
   if (choice.toggles) {
     store.toggle(choice.toggles);
     if (record.multiSelect) return;
   }
 
+  if (choice.setsVoice) {
+    store.set({
+      selectedVoice: choice.setsVoice,
+      voiceEnabled: choice.setsVoice !== "subtitlesOnly",
+    });
+    if (record.multiSelect) return;
+  }
+
   if (choice.setsConcern !== undefined) {
     store.set({ selectedConcern: choice.setsConcern });
+  }
+
+  // Save the summary. Deliberately does NOT move on or reset — the customer
+  // may want to save it and then keep reading.
+  if (choice.exportsSummary) {
+    exportSession();
+    if (!choice.goto) return;
   }
 
   if (choice.exits) {
@@ -71,8 +85,6 @@ async function handleChoice(choice: Choice, record: SceneRecord): Promise<void> 
     return;
   }
 
-  // "Continue experience" on the pause screen: go back to whatever was
-  // underneath, wherever that was.
   if (choice.resume) {
     await router.pop();
     return;

@@ -13,21 +13,23 @@ import { colours, sizes } from "../core/theme";
 import { snapPoints } from "../environments/room";
 
 /**
- * Click a floor disc, move there.
+ * Desktop movement: click a floor disc to travel, scroll to step back.
  *
- * Why clicking rather than WASD: in the headset the customer moves by pointing
- * a controller at a spot and pressing a button. Clicking with a mouse is the
- * same idea with a different device, so there's one way to move in the product
- * rather than two. It also needs no keyboard, which matters when the person
- * using this may not be confident with computers.
+ * NEW: the mouse wheel.
  *
- * NEW IN SESSION 2 — the on/off switch below.
- * In VR, the controller's pointer also counts as a click. Without this switch,
- * aiming at a disc would teleport you AND slide the desktop camera at the same
- * time. So we turn clicking off whenever VR starts, and back on when it ends.
+ * A UniversalCamera has no zoom — it's a real viewpoint in a room, not a
+ * picture you can pinch. So when a panel sat too close there was no way to back
+ * away, because clicking discs only ever put you in the same six places.
+ *
+ * The wheel now steps you forward and back along your line of sight. It's for
+ * you while building, and it's a sensible comfort control for anyone on a
+ * laptop — but it stays OFF in VR, where moving someone without their say-so is
+ * how you make them queasy.
  */
 
 const MOVE_DURATION_MS = 420;
+const WHEEL_STEP_M = 0.35;
+const ROOM_LIMIT = 5.4; // stay inside the walls
 
 let enabled = true;
 
@@ -45,6 +47,23 @@ export function attachClickToMove(
 
   scene.onPointerObservable.add((info) => {
     if (!enabled) return;
+
+    // --- Wheel: step forward or back ---
+    if (info.type === PointerEventTypes.POINTERWHEEL) {
+      const event = info.event as WheelEvent;
+      const direction = camera.getDirection(Vector3.Forward());
+      direction.y = 0;
+      direction.normalize();
+
+      // Wheel down (positive deltaY) steps back, which matches how people
+      // expect "zoom out" to feel.
+      const step = event.deltaY > 0 ? -WHEEL_STEP_M : WHEEL_STEP_M;
+      const next = camera.position.add(direction.scale(step));
+
+      camera.position.x = clamp(next.x, -ROOM_LIMIT, ROOM_LIMIT);
+      camera.position.z = clamp(next.z, -ROOM_LIMIT, ROOM_LIMIT);
+      return;
+    }
 
     const picked = info.pickInfo?.pickedMesh ?? null;
     const isMarker = picked !== null && markerIds.has(picked.name);
@@ -72,6 +91,10 @@ export function attachClickToMove(
   });
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
 function setGlow(mesh: AbstractMesh, on: boolean): void {
   const material = mesh.material as StandardMaterial | null;
   if (!material) return;
@@ -81,14 +104,13 @@ function setGlow(mesh: AbstractMesh, on: boolean): void {
 }
 
 function moveCameraTo(camera: UniversalCamera, target: Vector3): void {
-  // Keep the camera at eye height — the snap point is on the floor.
   const destination = new Vector3(target.x, sizes.eyeHeight, target.z);
 
   Animation.CreateAndStartAnimation(
     "cameraMove",
     camera,
     "position",
-    60, // frames per second
+    60,
     Math.round((MOVE_DURATION_MS / 1000) * 60),
     camera.position.clone(),
     destination,

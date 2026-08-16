@@ -34,34 +34,93 @@
       { "id": "seated", "label": "Seated mode", "toggles": "seatedMode" },
       { "id": "moreTime", "label": "More time to read", "toggles": "extraReadingTime" },
       { "id": "colleague", "label": "Colleague-assisted mode", "toggles": "colleagueAssisted" },
-      { "id": "continue", "label": "Continue", "goto": "survey.confidence" },
+      { "id": "continue", "label": "Continue", "goto": "welcome.voice" },
       { "id": "exit", "label": "Exit experience", "exits": true }
     ]
   },
 
   {
-    "id": "survey.confidence",
+    "id": "welcome.voice",
+    "scenario": 1,
+    "title": "Choose a voice",
+    "audioKey": "s01_voice",
+    "multiSelect": true,
+    "narration": [
+      "You can choose the voice you would prefer for this experience.",
+      "Please select one of the options below.",
+      "You can change this setting later if needed."
+    ],
+    "choices": [
+      { "id": "english", "label": "English voice", "setsVoice": "english" },
+      { "id": "scottish", "label": "Scottish voice", "setsVoice": "scottish" },
+      { "id": "welsh", "label": "Welsh voice", "setsVoice": "welsh" },
+      { "id": "irish", "label": "Irish voice", "setsVoice": "irish" },
+      { "id": "neutral", "label": "Neutral voice", "setsVoice": "neutral" },
+      { "id": "subtitlesOnly", "label": "Subtitles only", "setsVoice": "subtitlesOnly" },
+      { "id": "continue", "label": "Continue", "goto": "survey.intro" }
+    ]
+  },
+
+  {
+    "id": "survey.intro",
     "scenario": 2,
     "title": "A few short questions",
-    "audioKey": "s02_survey",
+    "audioKey": "s02_intro",
     "narration": [
       "Before I show the banking alternatives, I would like to ask a few short questions.",
       "These questions help us understand whether this experience improves your confidence.",
       "There are no right or wrong answers."
     ],
+    "choices": [
+      { "id": "continue", "label": "Start the questions", "goto": "survey.concern" }
+    ]
+  },
+
+  {
+    "id": "survey.concern",
+    "scenario": 2,
+    "title": "Question 1 of 5",
+    "audioKey": "s02_q1",
+    "narration": ["How concerned do you feel about your local branch closing?"],
     "scales": [
       {
         "id": "concernBefore",
         "prompt": "How concerned do you feel about your local branch closing?",
         "minLabel": "Not concerned",
         "maxLabel": "Very concerned"
-      },
+      }
+    ],
+    "choices": [
+      { "id": "continue", "label": "Next question", "goto": "survey.wayfinding", "requireAnswer": true }
+    ]
+  },
+
+  {
+    "id": "survey.wayfinding",
+    "scenario": 2,
+    "title": "Question 2 of 5",
+    "audioKey": "s02_q2",
+    "narration": ["How confident are you that you know where to go for banking after the branch closes?"],
+    "scales": [
       {
         "id": "wayfindingConfidenceBefore",
         "prompt": "How confident are you that you know where to go for banking after the branch closes?",
         "minLabel": "Not confident",
         "maxLabel": "Very confident"
-      },
+      }
+    ],
+    "choices": [
+      { "id": "continue", "label": "Next question", "goto": "survey.mobileConfidence", "requireAnswer": true }
+    ]
+  },
+
+  {
+    "id": "survey.mobileConfidence",
+    "scenario": 2,
+    "title": "Question 3 of 5",
+    "audioKey": "s02_q3",
+    "narration": ["How confident are you using mobile banking?"],
+    "scales": [
       {
         "id": "mobileConfidenceBefore",
         "prompt": "How confident are you using mobile banking?",
@@ -70,8 +129,88 @@
       }
     ],
     "choices": [
-      { "id": "continue", "label": "Continue", "goto": "concern.options" }
+      { "id": "continue", "label": "Next question", "goto": "survey.mobileUsage", "requireAnswer": true }
     ]
+  },
+
+  {
+    "id": "survey.mobileUsage",
+    "scenario": 2,
+    "title": "Question 4 of 5",
+    "audioKey": "s02_q4",
+    "narration": ["How often do you currently use mobile banking?"],
+    "choices": [
+      { "id": "never", "label": "Never", "goto": "survey.supportPreference" },
+      { "id": "rarely", "label": "Rarely", "goto": "survey.supportPreference" },
+      { "id": "sometimes", "label": "Sometimes", "goto": "survey.supportPreference" },
+      { "id": "often", "label": "Often", "goto": "survey.supportPreference" },
+      { "id": "veryOften", "label": "Very often", "goto": "survey.supportPreference" }
+    ]
+  },
+
+  {
+    "id": "survey.supportPreference",
+    "scenario": 2,
+    "title": "Question 5 of 5",
+    "audioKey": "s02_q5",
+    "narration": ["Which type of support would you prefer today?"],
+    "choices": [
+      { "id": "physical", "label": "Physical place support", "goto": "survey.done" },
+      { "id": "digital", "label": "Digital banking support", "goto": "survey.done" },
+      { "id": "both", "label": "Both physical and digital support", "goto": "survey.done" },
+      { "id": "unsure", "label": "I am not sure yet", "goto": "survey.done" }
+    ]
+  },
+
+  {
+    "id": "survey.done",
+    "scenario": 2,
+    "title": "Thank you",
+    "audioKey": "s02_done",
+    "narration": [
+      "Thank you. I will use your answers to make this experience more relevant to you.",
+      "At the end, I will ask a few of these questions again so we can see whether this journey helped."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "welcome.personal" }]
+  },
+
+  {
+    "id": "welcome.personal",
+    "scenario": 3,
+    "title": "Hello [Customer Name]",
+    "audioKey": "s03_greeting",
+    "narration": [
+      "Hello [Customer Name], welcome.",
+      "We understand that your local branch, [Branch Name], is closing.",
+      "We know this may change the way you usually bank with us, and we want to help you understand what support will still be available.",
+      "This experience will show nearby banking alternatives, what services are available, how far they are, what you may need to bring and who can help you."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "welcome.history" }]
+  },
+
+  {
+    "id": "welcome.history",
+    "scenario": 3,
+    "title": "How you usually bank",
+    "audioKey": "s03_history",
+    "narration": [
+      "Based on your usual banking pattern, you may need support with services such as cash withdrawal, cheque deposit, balance enquiry, account support or face-to-face help.",
+      "Today, I will show how these needs can continue through nearby options such as a Banking Hub, Post Office, Community Banker, alternative branch, cash machine, mobile banking and dedicated support channels."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "welcome.reassurance" }]
+  },
+
+  {
+    "id": "welcome.reassurance",
+    "scenario": 3,
+    "title": "Take your time",
+    "audioKey": "s03_reassurance",
+    "narration": [
+      "You do not need to decide everything now.",
+      "This experience is here to help you understand your options step by step.",
+      "If anything feels unclear, you can ask for colleague help at any point."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "concern.options" }]
   },
 
   {
@@ -91,7 +230,7 @@
       { "id": "accessibility", "label": "I have accessibility needs", "setsConcern": "accessibility", "goto": "concern.response" },
       { "id": "privacy", "label": "I need privacy for my banking", "setsConcern": "privacy", "goto": "concern.response" },
       { "id": "unsure", "label": "I am not sure what services are available elsewhere", "setsConcern": "unsure", "goto": "concern.response" },
-      { "id": "skip", "label": "I prefer not to say", "goto": "hub.counter" }
+      { "id": "skip", "label": "I prefer not to say", "goto": "alternatives.intro" }
     ]
   },
 
@@ -113,9 +252,7 @@
       "privacy": "Thank you. I will show where private conversations may be available, and I will avoid showing sensitive details on shared screens.",
       "unsure": "Thank you. I will show what each nearby option can and cannot do, so you know before you travel."
     },
-    "choices": [
-      { "id": "continue", "label": "Continue", "goto": "hub.counter" }
-    ]
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "alternatives.intro" }]
   },
 
   {
@@ -139,6 +276,104 @@
   },
 
   {
+    "id": "alternatives.intro",
+    "scenario": 6,
+    "title": "Where banking can continue",
+    "audioKey": "s06_intro",
+    "narration": [
+      "Now I will show how banking support can continue after your branch closes.",
+      "Instead of starting with a transaction, I will first show the different places and channels available to you.",
+      "You can then choose which option you want to explore in more detail."
+    ],
+    "choices": [{ "id": "continue", "label": "Show me the options", "goto": "alternatives.options" }]
+  },
+
+  {
+    "id": "alternatives.options",
+    "scenario": 6,
+    "title": "Your nearby options",
+    "audioKey": "s06_options",
+    "narration": [
+      "These are the options available near you: a Banking Hub, the Post Office, a Community Banker, an alternative branch, a cash machine or Talking ATM, a Community Cash In and Out machine, PayPoint, mobile banking, and a dedicated helpline.",
+      "A map of these locations will appear here."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "alternatives.suitability" }]
+  },
+
+  {
+    "id": "alternatives.suitability",
+    "scenario": 6,
+    "title": "Nearest is not always best",
+    "audioKey": "s06_suitability",
+    "narration": [
+      "These options are shown based on your branch location, registered address or selected postcode.",
+      "Some options may be closer, while others may provide more support.",
+      "The nearest option is not always the best option, so I will also show service availability, support type, accessibility and opening times."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "alternatives.choice" }]
+  },
+
+  {
+    "id": "alternatives.choice",
+    "scenario": 6,
+    "title": "What would you like to see?",
+    "audioKey": "s06_choice",
+    "narration": ["Which option would you like to explore?"],
+    "choices": [
+      { "id": "hub", "label": "Show Banking Hub", "goto": "hub.arrival" },
+      { "id": "post", "label": "Show Post Office", "goto": "post.arrival" },
+      { "id": "mobile", "label": "Show mobile banking", "goto": "mobile.transition" },
+      { "id": "support", "label": "Show human support", "goto": "support.board" },
+      { "id": "finish", "label": "I have seen enough — show my summary", "goto": "postsurvey.intro" },
+      { "id": "colleague", "label": "Ask a colleague to help me choose", "goto": "pause.anxiety" }
+    ]
+  },
+
+  {
+    "id": "hub.arrival",
+    "scenario": 7,
+    "title": "Welcome to the Banking Hub",
+    "audioKey": "s07_arrival",
+    "anchor": "arrival",
+    "narration": [
+      "Welcome to the Banking Hub.",
+      "This is one of the places where banking support may continue after your local branch closes.",
+      "I will show the layout, services, opening times, support areas and what you can do here."
+    ],
+    "choices": [{ "id": "continue", "label": "Go inside", "goto": "hub.info" }]
+  },
+
+  {
+    "id": "hub.info",
+    "scenario": 7,
+    "title": "[Hub Name]",
+    "audioKey": "s07_info",
+    "anchor": "arrival",
+    "narration": [
+      "[Hub Name] is at [Hub Address], [Hub Distance] away — [Hub Travel Time].",
+      "It is open [Hub Opening Times].",
+      "On this screen, you can see the distance, opening times and travel options.",
+      "You can also see which services may be available here.",
+      "Services may include everyday banking support, cash services, cheque services, balance enquiries and access to Community Bankers on selected days."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "hub.entrance" }]
+  },
+
+  {
+    "id": "hub.entrance",
+    "scenario": 7,
+    "title": "The entrance and seating area",
+    "audioKey": "s07_entrance",
+    "anchor": "waiting",
+    "narration": [
+      "This is the entrance area.",
+      "If you need time before speaking to someone, you can use the seating area.",
+      "If you feel unsure, you can ask a colleague where to go."
+    ],
+    "choices": [{ "id": "continue", "label": "Go to the counter", "goto": "hub.counter" }]
+  },
+
+  {
     "id": "hub.counter",
     "scenario": 7,
     "title": "The main counter",
@@ -151,7 +386,532 @@
       "If you are unsure what to ask, you can simply say: I need help with my banking today."
     ],
     "choices": [
-      { "id": "back", "label": "Start again", "goto": "welcome.calm" }
+      { "id": "cheque", "label": "How do I pay in a cheque?", "goto": "hub.cheque" },
+      { "id": "cash", "label": "What about cash?", "goto": "hub.cash" },
+      { "id": "onwards", "label": "Show me the private room", "goto": "hub.privateRoom" }
+    ]
+  },
+
+  {
+    "id": "hub.cheque",
+    "scenario": 7,
+    "title": "Paying in a cheque",
+    "audioKey": "s07_cheque",
+    "anchor": "counter",
+    "narration": [
+      "If you need to deposit a cheque, bring the cheque and any required account or card details.",
+      "At the counter, you can say: I would like to pay in this cheque.",
+      "The colleague will confirm whether this service is available for your bank at this location.",
+      "If the service is available, keep any receipt or confirmation given to you."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "hub.cash" }]
+  },
+
+  {
+    "id": "hub.cash",
+    "scenario": 7,
+    "title": "Cash services",
+    "audioKey": "s07_cash",
+    "anchor": "counter",
+    "narration": [
+      "If you need cash, the counter may be able to help with cash withdrawal or cash deposit.",
+      "For some business customers, change services may also be available.",
+      "Availability can depend on the bank, account type and local service arrangement."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "hub.privateRoom" }]
+  },
+
+  {
+    "id": "hub.privateRoom",
+    "scenario": 7,
+    "title": "The private room",
+    "audioKey": "s07_private",
+    "anchor": "privateRoom",
+    "narration": [
+      "This is the private room.",
+      "You can ask to use this space if your conversation is personal, sensitive or more complex.",
+      "Examples include financial difficulty, bereavement, Power of Attorney, carer support, accessibility needs or account concerns.",
+      "You can say: I would like to speak privately about my account."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "hub.communityBanker" }]
+  },
+
+  {
+    "id": "hub.communityBanker",
+    "scenario": 7,
+    "title": "Community Banker area",
+    "audioKey": "s07_banker",
+    "anchor": "communityBanker",
+    "narration": [
+      "Community Bankers may be available on selected days.",
+      "At [Hub Name], your bank's Community Banker is usually here on [Community Banker Days].",
+      "They can help with bank-specific questions and more detailed account support.",
+      "When you arrive, ask: When is my bank's Community Banker available?",
+      "If your bank is not available today, you can return on the correct day or use another support route."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "hub.summary" }]
+  },
+
+  {
+    "id": "hub.summary",
+    "scenario": 7,
+    "title": "You have seen the Banking Hub",
+    "audioKey": "s07_summary",
+    "anchor": "centre",
+    "narration": [
+      "You have now seen the Banking Hub layout.",
+      "You know where the counter is, where seating is available, where private conversations may happen, and where to ask about Community Banker support.",
+      "Would you like to continue to the Post Office option, mobile banking practice, or see your summary?"
+    ],
+    "choices": [
+      { "id": "post", "label": "Show Post Office", "goto": "post.arrival" },
+      { "id": "mobile", "label": "Show mobile banking", "goto": "mobile.transition" },
+      { "id": "counter", "label": "Show me the counter again", "goto": "hub.counter" },
+      { "id": "compare", "label": "Compare my options", "goto": "alternatives.choice" },
+      { "id": "summary", "label": "See my summary", "goto": "postsurvey.intro" },
+      { "id": "colleague", "label": "Ask for colleague support", "goto": "support.board" }
+    ]
+  },
+
+  {
+    "id": "post.arrival",
+    "scenario": 8,
+    "title": "The Post Office",
+    "audioKey": "s08_arrival",
+    "narration": [
+      "This is the Post Office banking counter journey.",
+      "In some locations, customers can use the Post Office for selected everyday banking services.",
+      "I will show what to expect before you visit."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "post.services" }]
+  },
+
+  {
+    "id": "post.services",
+    "scenario": 8,
+    "title": "What you can do here",
+    "audioKey": "s08_services",
+    "narration": [
+      "This service board shows the banking activities that may be available here.",
+      "These can include cash withdrawal, cash deposit, cheque deposit and balance enquiry, depending on your bank and the local service arrangement.",
+      "Before travelling, check whether the service you need is available."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "post.queue" }]
+  },
+
+  {
+    "id": "post.queue",
+    "scenario": 8,
+    "title": "The queue and counter",
+    "audioKey": "s08_queue",
+    "narration": [
+      "When you arrive, join the queue for the counter.",
+      "Have your bank card, cheque, cash or account details ready, depending on the service you need.",
+      "When it is your turn, tell the colleague what you would like to do."
+    ],
+    "choices": [
+      { "id": "cash", "label": "How do I pay in cash?", "goto": "post.cashExample" },
+      { "id": "balance", "label": "How do I check my balance?", "goto": "post.balanceExample" }
+    ]
+  },
+
+  {
+    "id": "post.cashExample",
+    "scenario": 8,
+    "title": "Paying in cash",
+    "audioKey": "s08_cash",
+    "narration": [
+      "For cash deposit, you can say: I would like to pay cash into my account.",
+      "The colleague will confirm whether the service is available for your bank.",
+      "If the deposit is accepted, keep the receipt."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "post.balanceExample" }]
+  },
+
+  {
+    "id": "post.balanceExample",
+    "scenario": 8,
+    "title": "Checking your balance",
+    "audioKey": "s08_balance",
+    "narration": [
+      "For balance enquiry, you can say: Can I check my account balance please?",
+      "The colleague may ask for your card or account details.",
+      "If the service cannot be completed here, use the next available option shown in your summary."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "post.summary" }]
+  },
+
+  {
+    "id": "post.summary",
+    "scenario": 8,
+    "title": "You have seen the Post Office",
+    "audioKey": "s08_summary",
+    "narration": [
+      "You have now seen the Post Office banking journey.",
+      "This option may be useful for everyday banking, but it may not support every service.",
+      "If your need is more complex, a Banking Hub, Community Banker, branch colleague or specialist support route may be more suitable."
+    ],
+    "choices": [
+      { "id": "mobile", "label": "Show mobile banking", "goto": "mobile.transition" },
+      { "id": "hub", "label": "Show Banking Hub", "goto": "hub.arrival" },
+      { "id": "compare", "label": "Compare my options", "goto": "alternatives.choice" },
+      { "id": "summary", "label": "See my summary", "goto": "postsurvey.intro" }
+    ]
+  },
+
+  {
+    "id": "mobile.transition",
+    "scenario": 9,
+    "title": "A practice mobile screen",
+    "audioKey": "s09_transition",
+    "narration": [
+      "You have seen some physical options.",
+      "Now I will show which services may also be available through mobile banking.",
+      "This is a practice screen. No real account is connected. No real money will move."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "mobile.overview" }]
+  },
+
+  {
+    "id": "mobile.overview",
+    "scenario": 9,
+    "title": "What a banking app shows",
+    "audioKey": "s09_overview",
+    "narration": [
+      "This large mobile screen shows a practice version of mobile banking.",
+      "In a real app, you may be able to check your balance, view recent transactions, find statements, manage alerts and ask for help.",
+      "If something is difficult, support routes such as chat, live chat and phone help may be available."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "mobile.security" }]
+  },
+
+  {
+    "id": "mobile.security",
+    "scenario": 9,
+    "title": "About security checks",
+    "audioKey": "s09_security",
+    "narration": [
+      "Some digital banking tasks require security checks.",
+      "This practice screen will explain where security checks may appear, but it will not ask for your password, PIN, passcode or security answers.",
+      "Never share those details inside this experience or with anyone else."
+    ],
+    "choices": [{ "id": "continue", "label": "I understand", "goto": "mobile.balance" }]
+  },
+
+  {
+    "id": "mobile.balance",
+    "scenario": 9,
+    "title": "Practice: check a balance",
+    "audioKey": "s09_balance",
+    "narration": [
+      "Let us practise checking a balance.",
+      "First, select the account tile.",
+      "The available balance is usually shown near the top of the account screen.",
+      "You can also look for recent transactions below.",
+      "No real account information is shown here."
+    ],
+    "choices": [
+      { "id": "tile", "label": "Select the account tile", "goto": "mobile.statement" }
+    ]
+  },
+
+  {
+    "id": "mobile.statement",
+    "scenario": 9,
+    "title": "Practice: find a statement",
+    "audioKey": "s09_statement",
+    "narration": [
+      "Now let us practise finding statements.",
+      "Look for the section called statements, documents or account information.",
+      "Select the statement option.",
+      "In the real app, this may show previous statements or documents."
+    ],
+    "choices": [
+      { "id": "statements", "label": "Select statements", "goto": "mobile.chat" }
+    ]
+  },
+
+  {
+    "id": "mobile.chat",
+    "scenario": 9,
+    "title": "Practice: find help",
+    "audioKey": "s09_chat",
+    "narration": [
+      "Now I will show where help can be found.",
+      "Select the help or support button.",
+      "You may see options such as chat, live chat, phone support or help articles.",
+      "A digital assistant may answer simple questions first.",
+      "If the question needs more help, you may be connected to a person."
+    ],
+    "choices": [
+      { "id": "help", "label": "Select help and support", "goto": "mobile.helpline" }
+    ]
+  },
+
+  {
+    "id": "mobile.helpline",
+    "scenario": 9,
+    "title": "A dedicated support route",
+    "audioKey": "s09_helpline",
+    "narration": [
+      "For customers affected by branch closure, a dedicated support route can be shown here.",
+      "This route helps customers who still need reassurance, practical guidance or human support.",
+      "You are not expected to manage everything alone."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "mobile.confidence" }]
+  },
+
+  {
+    "id": "mobile.confidence",
+    "scenario": 9,
+    "title": "How does that feel?",
+    "audioKey": "s09_confidence",
+    "narration": [
+      "After seeing this practice screen, how confident do you feel using mobile banking for simple tasks?"
+    ],
+    "scales": [
+      {
+        "id": "mobileConfidencePractice",
+        "prompt": "How confident do you feel using mobile banking for simple tasks?",
+        "minLabel": "Not confident",
+        "maxLabel": "Very confident"
+      }
+    ],
+    "choices": [
+      { "id": "again", "label": "Practise again", "goto": "mobile.balance", "requireAnswer": true },
+      { "id": "physical", "label": "Show physical options again", "goto": "alternatives.choice", "requireAnswer": true },
+      { "id": "colleague", "label": "Ask for colleague help", "goto": "support.board", "requireAnswer": true },
+      { "id": "continue", "label": "Continue to final summary", "goto": "postsurvey.intro", "requireAnswer": true }
+    ]
+  },
+
+  {
+    "id": "support.board",
+    "scenario": 10,
+    "title": "Ways to speak to a person",
+    "audioKey": "s10_board",
+    "narration": [
+      "You have several ways to get human support: a branch colleague, the Banking Hub counter, a Community Banker, the Post Office counter, mobile app chat, live chat with a person, phone support, a dedicated branch-closure helpline, and specialist vulnerable-customer support.",
+      "If your need is simple, a counter colleague may help.",
+      "If your need is bank-specific or more detailed, a Community Banker or branch colleague may be more suitable.",
+      "If you need help from home, you may use chat, live chat, phone support or a dedicated branch-closure support route."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "support.sensitive" }]
+  },
+
+  {
+    "id": "support.sensitive",
+    "scenario": 10,
+    "title": "If your need is personal",
+    "audioKey": "s10_sensitive",
+    "narration": [
+      "Some needs are personal or sensitive.",
+      "These may include bereavement, financial difficulty, Power of Attorney, carer support, illness, accessibility needs or financial abuse.",
+      "For these needs, the experience will direct you to a private or specialist support route."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "support.private" }]
+  },
+
+  {
+    "id": "support.private",
+    "scenario": 10,
+    "title": "Asking to speak privately",
+    "audioKey": "s10_private",
+    "narration": [
+      "If you need to speak privately, you can say: I need to discuss something privately about my account.",
+      "A colleague can help you find the right support route.",
+      "You do not need to explain sensitive details in this experience."
+    ],
+    "choices": [
+      { "id": "summary", "label": "Continue to my summary", "goto": "postsurvey.intro" },
+      { "id": "options", "label": "Back to my options", "goto": "alternatives.choice" }
+    ]
+  },
+
+  {
+    "id": "postsurvey.intro",
+    "scenario": 11,
+    "title": "Almost finished",
+    "audioKey": "s11_intro",
+    "narration": [
+      "You have completed the main experience.",
+      "I will now ask a few of the same questions again.",
+      "This helps us understand whether the experience improved your confidence."
+    ],
+    "choices": [{ "id": "continue", "label": "Start the questions", "goto": "postsurvey.concern" }]
+  },
+
+  {
+    "id": "postsurvey.concern",
+    "scenario": 11,
+    "title": "Question 1 of 5",
+    "audioKey": "s11_q1",
+    "narration": ["How concerned do you feel now about your local branch closing?"],
+    "scales": [
+      {
+        "id": "concernAfter",
+        "prompt": "How concerned do you feel now about your local branch closing?",
+        "minLabel": "Not concerned",
+        "maxLabel": "Very concerned"
+      }
+    ],
+    "choices": [
+      { "id": "continue", "label": "Next question", "goto": "postsurvey.wayfinding", "requireAnswer": true }
+    ]
+  },
+
+  {
+    "id": "postsurvey.wayfinding",
+    "scenario": 11,
+    "title": "Question 2 of 5",
+    "audioKey": "s11_q2",
+    "narration": ["How confident are you now that you know where to go after the branch closes?"],
+    "scales": [
+      {
+        "id": "wayfindingConfidenceAfter",
+        "prompt": "How confident are you now that you know where to go after the branch closes?",
+        "minLabel": "Not confident",
+        "maxLabel": "Very confident"
+      }
+    ],
+    "choices": [
+      { "id": "continue", "label": "Next question", "goto": "postsurvey.mobile", "requireAnswer": true }
+    ]
+  },
+
+  {
+    "id": "postsurvey.mobile",
+    "scenario": 11,
+    "title": "Question 3 of 5",
+    "audioKey": "s11_q3",
+    "narration": ["How confident are you now using mobile banking for simple tasks?"],
+    "scales": [
+      {
+        "id": "mobileConfidenceAfter",
+        "prompt": "How confident are you now using mobile banking for simple tasks?",
+        "minLabel": "Not confident",
+        "maxLabel": "Very confident"
+      }
+    ],
+    "choices": [
+      { "id": "continue", "label": "Next question", "goto": "postsurvey.understanding", "requireAnswer": true }
+    ]
+  },
+
+  {
+    "id": "postsurvey.understanding",
+    "scenario": 11,
+    "title": "Question 4 of 5",
+    "audioKey": "s11_q4",
+    "narration": [
+      "Do you understand which services may be available at a Banking Hub, Post Office or through mobile banking?"
+    ],
+    "choices": [
+      { "id": "yes", "label": "Yes", "goto": "postsurvey.colleague" },
+      { "id": "partly", "label": "Partly", "goto": "postsurvey.colleague" },
+      { "id": "no", "label": "No", "goto": "postsurvey.colleague" },
+      { "id": "more", "label": "I need more help", "goto": "support.board" }
+    ]
+  },
+
+  {
+    "id": "postsurvey.colleague",
+    "scenario": 11,
+    "title": "Question 5 of 5",
+    "audioKey": "s11_q5",
+    "narration": ["Would you still like help from a colleague?"],
+    "choices": [
+      { "id": "yes", "label": "Yes", "goto": "support.board" },
+      { "id": "no", "label": "No", "goto": "postsurvey.impact" },
+      { "id": "notSure", "label": "Not sure", "goto": "postsurvey.impact" }
+    ]
+  },
+
+  {
+    "id": "postsurvey.impact",
+    "scenario": 11,
+    "title": "Thank you",
+    "audioKey": "s11_impact",
+    "narration": [
+      "Thank you. Your answers help show whether this experience improved understanding and confidence.",
+      "You can now save a summary, ask for colleague help or provide feedback."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "feedback.prompt" }]
+  },
+
+  {
+    "id": "feedback.prompt",
+    "scenario": 12,
+    "title": "What else would help?",
+    "audioKey": "s12_prompt",
+    "narration": [
+      "Before you finish, please tell us what else would make this experience more helpful.",
+      "You can choose an option, or skip this step."
+    ],
+    "choices": [{ "id": "continue", "label": "Continue", "goto": "feedback.options" }]
+  },
+
+  {
+    "id": "feedback.options",
+    "scenario": 12,
+    "title": "What would you like more of?",
+    "audioKey": "s12_options",
+    "narration": ["Please choose whatever would have helped you most."],
+    "choices": [
+      { "id": "travel", "label": "More information about travel", "goto": "feedback.closing" },
+      { "id": "hubs", "label": "More detail about Banking Hubs", "goto": "feedback.closing" },
+      { "id": "postOffice", "label": "More detail about Post Office services", "goto": "feedback.closing" },
+      { "id": "mobile", "label": "More mobile banking practice", "goto": "feedback.closing" },
+      { "id": "accessibility", "label": "Clearer accessibility information", "goto": "feedback.closing" },
+      { "id": "human", "label": "More human support options", "goto": "feedback.closing" },
+      { "id": "printed", "label": "A printed guide", "goto": "feedback.closing" },
+      { "id": "contact", "label": "Someone to contact me", "goto": "feedback.closing" },
+      { "id": "skip", "label": "Skip this step", "goto": "feedback.closing" }
+    ]
+  },
+
+  {
+    "id": "feedback.closing",
+    "scenario": 12,
+    "title": "Thank you",
+    "audioKey": "s12_closing",
+    "narration": [
+      "Thank you for using the Branch Closure Confidence Navigator.",
+      "Your summary is ready.",
+      "It shows your selected options, where to go, what to bring, what can be done digitally and who can help."
+    ],
+    "choices": [{ "id": "continue", "label": "See my summary", "goto": "summary.screen" }]
+  },
+
+  {
+    "id": "summary.screen",
+    "scenario": 13,
+    "title": "Your summary",
+    "audioKey": "s13_summary",
+    "showSummary": true,
+    "narration": [
+      "This is your final summary.",
+      "You can use this to remember your next step after the branch closes."
+    ],
+    "choices": [
+      { "id": "save", "label": "Save my summary", "exportsSummary": true },
+      { "id": "continue", "label": "Continue", "goto": "summary.final" }
+    ]
+  },
+
+  {
+    "id": "summary.final",
+    "scenario": 13,
+    "title": "Before you go",
+    "audioKey": "s13_final",
+    "narration": [
+      "If anything is unclear, please select colleague help before you leave.",
+      "You can save, print, send or ask a colleague to review this summary with you."
+    ],
+    "choices": [
+      { "id": "colleague", "label": "Ask for colleague help", "goto": "support.board" },
+      { "id": "again", "label": "Look at my summary again", "goto": "summary.screen" },
+      { "id": "restart", "label": "Finish", "exits": true }
     ]
   }
 ]

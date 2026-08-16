@@ -1,19 +1,16 @@
-import { TOGGLEABLE_KEYS, type ConcernType, type ToggleableKey } from "../core/store";
+import { TOGGLEABLE_KEYS, VOICE_IDS, type ConcernType, type ToggleableKey, type VoiceId } from "../core/store";
 
 /**
  * The shape of a scene.
  *
- * THE RULE FOR THE REST OF THE PROJECT: no sentence a customer will read is
- * ever typed into a .ts file. It all lives in public/data/scenes.json.
+ * THE RULE: no sentence a customer will read is ever typed into a .ts file.
  *
- * Why it matters here specifically: the script is an approved document. When
- * someone changes a line, that's an edit to a JSON file, not a code change and
- * a rebuild. And when you add the other 38 scenes, you won't write any code —
- * you'll write records like the seven already in there.
+ * NEW IN PART 2:
+ *   showSummary     — draw the customer's personal summary on this screen
+ *   exportsSummary  — a button that saves the summary as a file
  */
 
 export type ScaleQuestion = {
-  /** Where the answer is stored, e.g. "concernBefore". */
   id: string;
   prompt: string;
   minLabel: string;
@@ -23,50 +20,35 @@ export type ScaleQuestion = {
 export type Choice = {
   id: string;
   label: string;
-  /** Which scene to go to. */
   goto?: string;
-  /** Remember which concern the customer picked. */
   setsConcern?: ConcernType;
-  /** Switch an accessibility setting on or off. */
+  setsVoice?: VoiceId;
   toggles?: ToggleableKey;
-  /** Go back to whatever we were doing before the pause. */
   resume?: boolean;
-  /** End the session. */
   exits?: boolean;
+  requireAnswer?: boolean;
+  /** Downloads the session as a file. Used on the final summary. */
+  exportsSummary?: boolean;
 };
 
 export type SceneRecord = {
   id: string;
-  /** Which of the 13 scripted scenarios this came from. Useful for review. */
   scenario: number;
   title: string;
-  /** One entry per spoken line. Also what the subtitles show. */
   narration: string[];
-  /** For the voice recordings later. Not used yet. */
   audioKey?: string;
-
-  /** A snap point id — the panel sits there instead of following the customer. */
   anchor?: string;
-
   scales?: ScaleQuestion[];
   choices?: Choice[];
-  /** Buttons stay pressable and the scene doesn't move on. */
   multiSelect?: boolean;
-  /** An extra opening line depending on which concern was chosen. */
   responses?: Partial<Record<NonNullable<ConcernType>, string>>;
-  /** Can be layered on top of any scene (the pause screen). */
   interrupt?: boolean;
+  /** Renders the personal summary block: name, branch, concern, confidence change. */
+  showSummary?: boolean;
 };
 
 export class SceneValidationError extends Error {}
 
-/**
- * Checks the JSON before the app starts.
- *
- * This is deliberately strict. A typo in scenes.json should stop everything
- * with a message naming the problem, rather than producing a blank panel
- * halfway through a demo.
- */
 export function validateScenes(raw: unknown): Map<string, SceneRecord> {
   if (!Array.isArray(raw)) {
     throw new SceneValidationError("scenes.json must be a list of scenes, wrapped in [ ].");
@@ -104,9 +86,26 @@ export function validateScenes(raw: unknown): Map<string, SceneRecord> {
             `Allowed: ${TOGGLEABLE_KEYS.join(", ")}.`,
         );
       }
-      if (!choice.goto && !choice.toggles && !choice.resume && !choice.exits) {
+      if (choice.setsVoice && !VOICE_IDS.includes(choice.setsVoice)) {
         throw new SceneValidationError(
-          `${rec.id}: button "${choice.id}" does nothing — it needs goto, toggles, resume or exits.`,
+          `${rec.id}: button "${choice.id}" sets voice "${choice.setsVoice}", which isn't known.`,
+        );
+      }
+      if (
+        !choice.goto &&
+        !choice.toggles &&
+        !choice.setsVoice &&
+        !choice.resume &&
+        !choice.exits &&
+        !choice.exportsSummary
+      ) {
+        throw new SceneValidationError(
+          `${rec.id}: button "${choice.id}" does nothing.`,
+        );
+      }
+      if (choice.requireAnswer && !rec.scales?.length) {
+        throw new SceneValidationError(
+          `${rec.id}: button "${choice.id}" waits for an answer, but this screen has no scales.`,
         );
       }
     });
@@ -117,11 +116,16 @@ export function validateScenes(raw: unknown): Map<string, SceneRecord> {
       }
     });
 
+    // A summary screen has no room for narration paragraphs as well as rows.
+    if (rec.showSummary && (rec.scales?.length ?? 0) > 0) {
+      throw new SceneValidationError(
+        `${rec.id}: a summary screen can't also hold a scale — they won't both fit.`,
+      );
+    }
+
     scenes.set(rec.id, rec as SceneRecord);
   });
 
-  // Second pass: check every "goto" points at a scene that actually exists.
-  // This is the check that catches typos before the headset does.
   scenes.forEach((scene) => {
     scene.choices?.forEach((choice) => {
       if (choice.goto && !scenes.has(choice.goto)) {

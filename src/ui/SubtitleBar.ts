@@ -1,30 +1,30 @@
 import { MeshBuilder, Vector3, type Camera, type Mesh, type Scene } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Control, Rectangle, TextBlock } from "@babylonjs/gui";
-import { readingTimeMs, uiPalette, uiText } from "../core/theme";
+import { uiPalette, uiText } from "../core/theme";
 import { store } from "../core/store";
+import { skipCurrentLine, speakLine, stop as stopNarration } from "../audio/narrator";
 
 /**
- * Subtitles.
+ * Subtitles, and the voice that goes with them.
  *
- * Attached to the camera, so they stay in view wherever the customer turns.
- * The script treats subtitles as always available, not something that belongs
- * to one particular screen — someone relying on them needs them everywhere.
+ * CHANGED: each line is now spoken as well as shown, and the two are kept in
+ * step — the line stays on screen for exactly as long as the audio lasts,
+ * rather than a guessed reading time. If there's no audio, it falls back to
+ * reading speed as before.
  *
- * They sit low so they don't cover the panel.
- *
- * How long each line stays up is worked out from how many words it has, and
- * stretches by 60% if the customer chose "More time to read".
+ * ALSO NEW: tap the subtitle bar to skip to the next line. Useful when you're
+ * testing the same screen for the fortieth time, and useful for a customer who
+ * reads faster than the narration.
  */
 
 export class SubtitleBar {
   readonly mesh: Mesh;
   private background: Rectangle;
   private label: TextBlock;
-  private timer: number | null = null;
+  private cancelled = false;
 
   constructor(scene: Scene) {
     this.mesh = MeshBuilder.CreatePlane("subtitleBar", { width: 1.5, height: 0.34 }, scene);
-    this.mesh.isPickable = false; // never gets in the way of clicking
     this.mesh.position = new Vector3(0, -0.42, 1.3);
     this.mesh.setEnabled(false);
 
@@ -44,6 +44,10 @@ export class SubtitleBar {
     this.label.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
     this.background.addControl(this.label);
 
+    // Tap the bar to move on to the next line.
+    this.background.isPointerBlocker = true;
+    this.background.onPointerUpObservable.add(() => skipCurrentLine());
+
     this.applyStyle();
     store.subscribeKeys(["largeText", "highContrast"], () => this.applyStyle());
     store.subscribeKeys(["subtitlesEnabled"], (state) => {
@@ -51,45 +55,39 @@ export class SubtitleBar {
     });
   }
 
-  /** Follow whichever camera is active — desktop, or the headset. */
   attachTo(camera: Camera): void {
     this.mesh.parent = camera;
   }
 
   private applyStyle(): void {
-    const text = uiText();
     this.label.color = uiPalette().textLight;
-    this.label.fontSize = text.subtitle;
+    this.label.fontSize = uiText().subtitle;
   }
 
   /**
-   * Show these lines one after another.
-   * Resolves once the last one has had its time on screen.
+   * Show and speak these lines, one after another.
+   *
+   * Nothing waits on this. The buttons on the panel are live from the moment
+   * the scene appears — see sceneStep.ts.
    */
-  play(lines: string[]): Promise<void> {
+  async play(lines: string[], audioKey?: string): Promise<void> {
     this.stop();
-    const queue = [...lines];
+    this.cancelled = false;
 
-    return new Promise((resolve) => {
-      const next = () => {
-        const line = queue.shift();
-        if (line === undefined) {
-          resolve();
-          return;
-        }
-        this.label.text = line;
-        this.mesh.setEnabled(store.get().subtitlesEnabled);
-        this.timer = window.setTimeout(next, readingTimeMs(line));
-      };
-      next();
-    });
+    for (let index = 0; index < lines.length; index += 1) {
+      if (this.cancelled) return;
+
+      const line = lines[index];
+      this.label.text = line;
+      this.mesh.setEnabled(store.get().subtitlesEnabled);
+
+      await speakLine(line, audioKey, index);
+    }
   }
 
   stop(): void {
-    if (this.timer !== null) {
-      window.clearTimeout(this.timer);
-      this.timer = null;
-    }
+    this.cancelled = true;
+    stopNarration();
   }
 
   clear(): void {

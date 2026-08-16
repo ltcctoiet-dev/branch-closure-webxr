@@ -3,16 +3,16 @@ import { store } from "../core/store";
 /**
  * Keeping the survey answers.
  *
- * The whole case for this project rests on one comparison: how confident
- * someone felt before, against how they felt after. That means the answers have
- * to go somewhere.
+ * The impact case rests on one comparison: confidence before against confidence
+ * after. So the answers have to be kept, and the summary screen has to be able
+ * to read them back.
  *
- * There's no server in this project — it's a static website — so answers live
- * in memory for the session and can be downloaded as a file at the end. That's
- * enough to prove the concept.
+ * NEW IN PART 2: getAnswer and hasVisited, so the summary can show what the
+ * customer actually did rather than a generic list.
  *
- * If a proper backend is approved later, this file is the one place you'd
- * change to send them somewhere instead.
+ * There's no server — this is a static site — so answers live in memory for the
+ * session and download as a file at the end. If a backend is approved later,
+ * exportSession is the single place to change.
  */
 
 type SessionData = {
@@ -43,7 +43,17 @@ export function recordSceneVisit(sceneId: string): void {
   }
 }
 
-function snapshot(): SessionData {
+/** A scale answer, or null if that question was never reached. */
+export function getAnswer(questionId: string): number | null {
+  return questionId in data.answers ? data.answers[questionId] : null;
+}
+
+/** Did the customer visit any scene whose id starts with this? e.g. "hub." */
+export function hasVisited(prefix: string): boolean {
+  return data.scenesVisited.some((id) => id.startsWith(prefix));
+}
+
+export function snapshot(): SessionData {
   const state = store.get();
   return {
     ...data,
