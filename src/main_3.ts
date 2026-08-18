@@ -17,6 +17,10 @@
  *          B / Y          go back to the previous node
  *          thumbstick L/R rotate the world in 15 degree steps
  *          A / X          recentre: make your current facing the front
+ *
+ * Aim the view in the headset with the thumbstick, take the headset off,
+ * then read the printed rotation from the console (chrome://inspect) and
+ * paste it into the node's `rotation` below.
  */
 
 import {
@@ -41,10 +45,12 @@ import {
 // ---------------------------------------------------------------------------
 // NODES — the only part you edit as you add panoramas.
 //
-//   rotation : degrees. Which way the panorama is turned.
+//   rotation : degrees. Which way the panorama is turned. In VR this is
+//              applied on top of wherever you are physically facing when
+//              the session starts.
 //   yaw      : degrees. Which direction a marker sits in, measured from the
 //              node's front. 0 ahead, 90 right, 180 behind, 270 left.
-//   pitch    : degrees. Negative points downward.
+//   pitch    : degrees. Negative points downward. -12 sits it near the floor.
 // ---------------------------------------------------------------------------
 
 type Hotspot = {
@@ -65,11 +71,9 @@ const NODES: NodeConfig[] = [
   {
     id: "entry",
     image: "/panoramas/node1.jpg",
-    rotation: 0,
+    rotation: 180,
     hotspots: [
-      { target: "meeting", yaw: 51, pitch: -5, label: "Private room" },
-      { target: "intro", yaw: 210, pitch: -5, label: "Back to the street" },
-      { target: "branch", yaw: 13, pitch: -18, label: "The counter" },
+      { target: "meeting", yaw: 231, pitch: -5, label: "Private room" },
     ],
   },
   {
@@ -77,52 +81,29 @@ const NODES: NodeConfig[] = [
     image: "/panoramas/meeting.jpg",
     rotation: 0,
     hotspots: [
-      { target: "entry", yaw: 41, pitch: -12, label: "Back to entrance" },
+      { target: "entry", yaw: 220, pitch: -12, label: "Back to entrance" },
     ],
   },
 ];
 
 const START_NODE = "entry";
 
-// Flat photo screens. A hotspot whose `target` matches a panel id shows that
-// panel instead of a panorama; selecting the panel then moves to its `target`
-// node. Panel ids and node ids share one namespace, so keep them distinct.
-type PanelConfig = {
-  id: string;
+// Opening screen: an ordinary flat photo of the shopfront from the street,
+// shown on a panel. Selecting it steps inside to START_NODE.
+// Set INTRO to null to boot straight into the panorama instead.
+const INTRO: {
   image: string;
   label: string;
-  target: string;   // node entered when the panel is selected
-  width: number;    // panel width in metres
-  distance: number; // how far in front of you it sits
-  yaw: number;      // where it first appears; later it follows your gaze
+  width: number;
+  distance: number;
+  yaw: number;
+} | null = {
+  image: "/images/entrance.jpg",
+  label: "Enter the Banking Hub",
+  width: 6,      // panel width in metres
+  distance: 7,   // how far in front of you it sits
+  yaw: 0,        // which direction it sits in, like a marker yaw
 };
-
-const PANELS: PanelConfig[] = [
-  {
-    id: "intro",
-    image: "/images/entrance.jpg",
-    label: "Enter the Banking Hub",
-    target: "entry",
-    width: 6,
-    distance: 7,
-    yaw: 0,
-  },
-  {
-    id: "branch",
-    image: "/images/branch.jpg",
-    label: "Back to the hub",
-    target: "entry",
-    width: 6,
-    distance: 7,
-    yaw: 0,
-  },
-];
-
-// Panel shown on load. Set to null to boot straight into the panorama.
-const START_PANEL: string | null = "intro";
-
-const findPanel = (id: string | undefined | null) =>
-  PANELS.find((panel) => panel.id === id) ?? null;
 
 // Diameter of the sphere in metres. Controls how large the room FEELS in
 // stereo. Keep this identical across nodes or the hub appears to resize.
@@ -135,17 +116,9 @@ const FIELD_OF_VIEW_DEGREES = 75;
 const HOTSPOT_RADIUS = 6;
 
 // Marker ball size. Bigger is easier to hit with a controller ray.
-const MARKER_RADIUS = 0.3;
+const MARKER_RADIUS = 0.45;
 
 const FADE_MS = 350;
-
-// When true, entering VR makes whichever way you are physically facing the
-// front of the scene. Keep it false while you are positioning markers.
-const RECENTRE_ON_ENTER = false;
-
-// How far the dome slides past you during a jump, in metres. Turns a cut into
-// a step. Not real parallax — the whole sphere moves as one. 0 disables it.
-const DOLLY_METRES = 2.2;
 
 // ---------------------------------------------------------------------------
 
@@ -178,38 +151,19 @@ camera.fov = (fovDegrees * Math.PI) / 180;
 // apart. In VR this absorbs whichever way you happened to be facing.
 let worldYaw = 0;
 
-// rig follows the head. world carries the recentre rotation. Everything you
-// can see hangs off world, so the panorama and the markers rotate as one.
 const rig = new TransformNode("rig", scene);
-const world = new TransformNode("world", scene);
-world.parent = rig;
 
-// useDirectMapping keeps the equirectangular image on the sphere as-is.
-// Routing it through a cube conversion instead leaves a visible vertical seam.
 const dome = new PhotoDome(
   "dome",
   NODES[0].image,
-  { resolution: 64, size: DOME_SIZE, useDirectMapping: true },
+  { resolution: 64, size: DOME_SIZE, useDirectMapping: false },
   scene
 );
-dome.mesh.parent = world;
+dome.mesh.parent = rig;
 dome.mesh.renderingGroupId = 0;
 dome.mesh.isPickable = false;
 
 let domeSize = DOME_SIZE;
-
-// Wrap horizontally, clamp vertically. The last argument is invertY: direct
-// mapping needs it OFF, otherwise the panorama arrives vertically flipped.
-function makePanoramaTexture(url: string): Texture {
-  const texture = new Texture(url, scene, false, false);
-  texture.wrapU = Texture.WRAP_ADDRESSMODE;
-  texture.wrapV = Texture.CLAMP_ADDRESSMODE;
-  return texture;
-}
-
-// The constructor builds its own texture with default settings; replace it so
-// the opening node uses the same orientation and wrapping as every swap.
-dome.photoTexture = makePanoramaTexture(NODES[0].image);
 
 const fadeSphere = MeshBuilder.CreateSphere(
   "fade",
@@ -257,13 +211,9 @@ function makeLabelTexture(text: string): DynamicTexture {
   texture.hasAlpha = true;
 
   const context = texture.getContext() as CanvasRenderingContext2D;
+  const maxWidth = LABEL_TEXTURE_WIDTH * 0.9;
 
-  // Drawn straight onto the canvas rather than via drawText: a "middle"
-  // baseline centres the glyphs regardless of ascender or descender height.
-  const maxWidth = LABEL_TEXTURE_WIDTH * 0.88;
-  const maxHeight = LABEL_TEXTURE_HEIGHT * 0.62;
-
-  let fontSize = Math.floor(maxHeight);
+  let fontSize = Math.floor(LABEL_TEXTURE_HEIGHT * 0.52);
   const font = () => `bold ${fontSize}px system-ui, sans-serif`;
 
   context.font = font();
@@ -272,14 +222,15 @@ function makeLabelTexture(text: string): DynamicTexture {
     context.font = font();
   }
 
-  context.clearRect(0, 0, LABEL_TEXTURE_WIDTH, LABEL_TEXTURE_HEIGHT);
-  context.font = font();
-  context.textAlign = "center";
-  context.textBaseline = "middle";
-  context.fillStyle = "#ffffff";
-  context.fillText(text, LABEL_TEXTURE_WIDTH / 2, LABEL_TEXTURE_HEIGHT / 2);
-
-  texture.update();
+  texture.drawText(
+    text,
+    null,
+    Math.floor(LABEL_TEXTURE_HEIGHT * 0.66),
+    font(),
+    "#ffffff",
+    "transparent",
+    true
+  );
 
   return texture;
 }
@@ -310,7 +261,6 @@ function buildMarkers(node: NodeConfig) {
     );
     ball.renderingGroupId = 1;
     ball.isPickable = true;
-    ball.parent = world;
 
     const material = new StandardMaterial("markerMat", scene);
     material.emissiveColor = IDLE_COLOR;
@@ -320,14 +270,12 @@ function buildMarkers(node: NodeConfig) {
 
     const labelPlane = MeshBuilder.CreatePlane(
       "labelPlane",
-      { width: 2.2, height: 0.55, sideOrientation: Mesh.DOUBLESIDE },
+      { width: 2.8, height: 0.7, sideOrientation: Mesh.DOUBLESIDE },
       scene
     );
     labelPlane.renderingGroupId = 1;
     labelPlane.isPickable = false;
-    labelPlane.parent = world;
     labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    labelPlane.preserveParentRotationForBillboard = true;
 
     const labelTexture = makeLabelTexture(spot.label);
     const labelMaterial = new StandardMaterial("labelMat", scene);
@@ -351,17 +299,15 @@ function buildMarkers(node: NodeConfig) {
   positionMarkers();
 }
 
-// Local to `world`, so the recentre rotation carries them along with the
-// panorama automatically.
 function positionMarkers() {
   markers.forEach((m) => {
-    const yaw = (m.yaw * Math.PI) / 180;
+    const yaw = ((m.yaw + worldYaw) * Math.PI) / 180;
     const pitch = (m.pitch * Math.PI) / 180;
     const horizontal = HOTSPOT_RADIUS * Math.cos(pitch);
 
-    const x = horizontal * Math.sin(yaw);
-    const y = HOTSPOT_RADIUS * Math.sin(pitch);
-    const z = horizontal * Math.cos(yaw);
+    const x = rig.position.x + horizontal * Math.sin(yaw);
+    const y = rig.position.y + HOTSPOT_RADIUS * Math.sin(pitch);
+    const z = rig.position.z + horizontal * Math.cos(yaw);
 
     m.ball.position.set(x, y, z);
     m.labelPlane.position.set(x, y + 0.9, z);
@@ -369,10 +315,7 @@ function positionMarkers() {
 }
 
 function applyWorldYaw() {
-  // Node rotation lives on the dome; the recentre lives on `world`, which
-  // carries the markers and the panel with it.
-  dome.mesh.rotation.y = (currentNode.rotation * Math.PI) / 180;
-  world.rotation.y = (worldYaw * Math.PI) / 180;
+  dome.mesh.rotation.y = ((currentNode.rotation + worldYaw) * Math.PI) / 180;
   positionMarkers();
   positionIntro();
   drawOverlay("Loaded");
@@ -381,27 +324,11 @@ function applyWorldYaw() {
 scene.onBeforeRenderObservable.add(() => {
   const active = scene.activeCamera;
   if (active) rig.position.copyFrom(active.globalPosition);
+  positionMarkers();
+  positionIntro();
 });
 
 // --- Opening panel ---------------------------------------------------------
-
-// Which panel is on screen, and where it sits. The yaw starts at the panel's
-// own value, then follows whichever way you are looking when you return to it.
-let currentPanel: PanelConfig | null = null;
-let introYaw = 0;
-
-// Which way the viewer is facing, in the local space the panel lives in.
-function facingYawDegrees(): number {
-  const active = scene.activeCamera as any;
-  if (!active) return introYaw;
-
-  const radians = active.rotationQuaternion
-    ? active.rotationQuaternion.toEulerAngles().y
-    : active.rotation.y;
-
-  const degrees = (radians * 180) / Math.PI - worldYaw;
-  return ((degrees % 360) + 360) % 360;
-}
 
 let introPlane: Mesh | null = null;
 let introPick: Mesh | null = null;
@@ -410,22 +337,16 @@ let introLabel: Mesh | null = null;
 let inIntro = false;
 
 function buildIntro() {
-  const INTRO = currentPanel;
   if (!INTRO) return;
 
   const texture = new Texture(INTRO.image, scene);
 
   introPlane = MeshBuilder.CreatePlane(
     "introPlane",
-    {
-      width: INTRO.width,
-      height: INTRO.width * 0.5625,
-      sideOrientation: Mesh.DOUBLESIDE,
-    },
+    { width: INTRO.width, height: INTRO.width * 0.5625, sideOrientation: Mesh.DOUBLESIDE },
     scene
   );
   introPlane.renderingGroupId = 1;
-  introPlane.parent = world;
   // A flat plane is unreliable as a ray target. An invisible solid box sitting
   // on the same spot does the picking instead.
   introPlane.isPickable = false;
@@ -441,7 +362,7 @@ function buildIntro() {
   texture.onLoadObservable.addOnce(() => {
     const size = texture.getSize();
     if (size.width && size.height && introPlane) {
-      introPlane.scaling.y = size.height / size.width / 0.5625;
+      introPlane.scaling.y = (size.height / size.width) / 0.5625;
     }
   });
 
@@ -452,7 +373,6 @@ function buildIntro() {
   );
   introPick.isVisible = false;
   introPick.isPickable = true;
-  introPick.parent = world;
 
   introBall = MeshBuilder.CreateSphere(
     "introBall",
@@ -461,7 +381,6 @@ function buildIntro() {
   );
   introBall.renderingGroupId = 1;
   introBall.isPickable = true;
-  introBall.parent = world;
 
   const ballMaterial = new StandardMaterial("introBallMat", scene);
   ballMaterial.emissiveColor = IDLE_COLOR;
@@ -476,9 +395,6 @@ function buildIntro() {
   );
   introLabel.renderingGroupId = 1;
   introLabel.isPickable = false;
-  introLabel.parent = world;
-  introLabel.billboardMode = Mesh.BILLBOARDMODE_ALL;
-  introLabel.preserveParentRotationForBillboard = true;
 
   const labelTexture = makeLabelTexture(INTRO.label);
   const labelMaterial = new StandardMaterial("introLabelMat", scene);
@@ -495,42 +411,33 @@ function buildIntro() {
 }
 
 function positionIntro() {
-  const INTRO = currentPanel;
   if (!INTRO || !introPlane || !introLabel || !introPick || !introBall) return;
 
-  const yaw = (introYaw * Math.PI) / 180;
-  const x = INTRO.distance * Math.sin(yaw);
-  const z = INTRO.distance * Math.cos(yaw);
+  const yaw = ((INTRO.yaw + worldYaw) * Math.PI) / 180;
+  const x = rig.position.x + INTRO.distance * Math.sin(yaw);
+  const z = rig.position.z + INTRO.distance * Math.cos(yaw);
 
-  introPlane.position.set(x, 0, z);
+  introPlane.position.set(x, rig.position.y, z);
   introPlane.rotation.y = yaw;
 
-  introPick.position.set(x, 0, z);
+  introPick.position.set(x, rig.position.y, z);
   introPick.rotation.y = yaw;
   introPick.scaling.y = introPlane.scaling.y;
 
   const drop = (introPlane.scaling.y * INTRO.width * 0.5625) / 2 + 0.7;
-  introLabel.position.set(x, -drop, z);
+  introLabel.position.set(x, rig.position.y - drop, z);
+  introLabel.rotation.y = yaw;
 
-  introBall.position.set(x, -drop - 0.95, z);
+  introBall.position.set(x, rig.position.y - drop - 0.95, z);
 }
 
 async function enterFromIntro() {
-  if (busy || !inIntro || !currentPanel) return;
-
-  const destination = NODES.find((n) => n.id === currentPanel!.target);
-  if (!destination) {
-    console.error(`Panel "${currentPanel.id}" targets unknown node.`);
-    return;
-  }
+  if (busy || !inIntro) return;
 
   busy = true;
 
   try {
-    // No dolly here: the dome is hidden behind the panel, so there is nothing
-    // to slide. The street panel simply fades out.
     await fade(0, 1);
-    resetDolly();
 
     introPlane?.dispose(false, true);
     introPick?.dispose(false, true);
@@ -541,50 +448,15 @@ async function enterFromIntro() {
     introBall = null;
     introLabel = null;
     inIntro = false;
-    currentPanel = null;
 
-    currentNode = destination;
     dome.mesh.setEnabled(true);
-    dome.photoTexture = makePanoramaTexture(currentNode.image);
+    dome.photoTexture = new Texture(currentNode.image, scene);
     applyWorldYaw();
 
     await fade(1, 0);
     buildMarkers(currentNode);
   } catch (err) {
     console.error("Could not enter:", err);
-  } finally {
-    busy = false;
-  }
-}
-
-async function showPanel(id: string, approachYaw?: number) {
-  const panel = findPanel(id);
-  if (busy || inIntro || !panel) return;
-
-  busy = true;
-
-  try {
-    clearMarkers();
-
-    await Promise.all([
-      fade(0, 1),
-      approachYaw === undefined
-        ? Promise.resolve()
-        : dollyForward(approachYaw, FADE_MS),
-    ]);
-
-    resetDolly();
-
-    // Put the panel where the viewer is looking, not where it first appeared.
-    introYaw = facingYawDegrees();
-    currentPanel = panel;
-
-    buildIntro();
-    drawOverlay(panel.id);
-
-    await fade(1, 0);
-  } catch (err) {
-    console.error("Could not show panel:", err);
   } finally {
     busy = false;
   }
@@ -607,7 +479,7 @@ function activate(mesh: any) {
   }
 
   const marker = findMarker(mesh);
-  if (marker) goToNode(marker.target, true, marker.yaw);
+  if (marker) goToNode(marker.target);
 }
 
 scene.onPointerObservable.add((info) => {
@@ -645,47 +517,7 @@ function fade(from: number, to: number): Promise<void> {
   });
 }
 
-// Slides the dome backwards along `yawDegrees`, which reads as walking
-// forwards. Runs alongside the fade, so the distortion is never seen.
-function dollyForward(yawDegrees: number, ms: number): Promise<void> {
-  if (!DOLLY_METRES) return Promise.resolve();
-
-  const yaw = (yawDegrees * Math.PI) / 180;
-  const direction = new Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-
-  return new Promise((resolve) => {
-    let elapsed = 0;
-    const observer = scene.onBeforeRenderObservable.add(() => {
-      elapsed += engine.getDeltaTime();
-      const t = Math.min(1, elapsed / ms);
-      const eased = t * t * (3 - 2 * t); // ease in and out
-
-      dome.mesh.position
-        .copyFrom(direction)
-        .scaleInPlace(-DOLLY_METRES * eased);
-
-      if (t >= 1) {
-        scene.onBeforeRenderObservable.remove(observer);
-        resolve();
-      }
-    });
-  });
-}
-
-function resetDolly() {
-  dome.mesh.position.setAll(0);
-}
-
-async function goToNode(
-  id: string,
-  recordHistory = true,
-  approachYaw?: number
-) {
-  if (findPanel(id)) {
-    showPanel(id, approachYaw);
-    return;
-  }
-
+async function goToNode(id: string, recordHistory = true) {
   const node = NODES.find((n) => n.id === id);
   if (!node || busy || node.id === currentNode.id) return;
 
@@ -695,18 +527,12 @@ async function goToNode(
     if (recordHistory) history.push(currentNode.id);
 
     clearMarkers();
+    await fade(0, 1);
 
-    await Promise.all([
-      fade(0, 1),
-      approachYaw === undefined
-        ? Promise.resolve()
-        : dollyForward(approachYaw, FADE_MS),
-    ]);
-
-    resetDolly();
-    dome.photoTexture = makePanoramaTexture(node.image);
+    dome.photoTexture = new Texture(node.image, scene);
     currentNode = node;
-    applyWorldYaw();
+    dome.mesh.rotation.y = ((currentNode.rotation + worldYaw) * Math.PI) / 180;
+    drawOverlay("Loaded");
 
     await fade(1, 0);
     buildMarkers(node);
@@ -741,9 +567,7 @@ overlay.style.cssText = [
 document.body.appendChild(overlay);
 
 function drawOverlay(status: string) {
-  const effective = Math.round(
-    (((currentNode.rotation + worldYaw) % 360) + 360) % 360
-  );
+  const effective = Math.round(((currentNode.rotation + worldYaw) % 360 + 360) % 360);
   overlay.textContent =
     `${status}  ${currentNode.id}  rotation ${effective}°  ` +
     `fov ${fovDegrees}°  dome ${domeSize}m   [ ] rot   - = zoom   , . scale   p yaw`;
@@ -757,7 +581,7 @@ window.addEventListener("keydown", (e) => {
     applyWorldYaw();
     console.log(
       `rotation for "${currentNode.id}": ` +
-        `${Math.round((((currentNode.rotation + worldYaw) % 360) + 360) % 360)}`
+        `${Math.round(((currentNode.rotation + worldYaw) % 360 + 360) % 360)}`
     );
     return;
   }
@@ -790,7 +614,7 @@ window.addEventListener("keydown", (e) => {
       floorMeshes: [],
     });
 
-    // Only markers and the panel should absorb the controller ray.
+    // Only markers should absorb the controller ray.
     if (xr.pointerSelection) {
       xr.pointerSelection.raySelectionPredicate = (mesh) => isInteractive(mesh);
     }
@@ -798,11 +622,9 @@ window.addEventListener("keydown", (e) => {
     // Make whichever way you are facing become the node's front.
     const recentre = () => {
       const xrCamera = xr.baseExperience.camera;
-      const headingDegrees =
-        (xrCamera.rotationQuaternion
-          ? xrCamera.rotationQuaternion.toEulerAngles().y
-          : xrCamera.rotation.y) *
-        (180 / Math.PI);
+      const headingDegrees = (xrCamera.rotationQuaternion
+        ? xrCamera.rotationQuaternion.toEulerAngles().y
+        : xrCamera.rotation.y) * (180 / Math.PI);
 
       worldYaw = ((Math.round(headingDegrees) % 360) + 360) % 360;
       applyWorldYaw();
@@ -812,20 +634,19 @@ window.addEventListener("keydown", (e) => {
     const logRotation = () =>
       console.log(
         `rotation for "${currentNode.id}": ` +
-          `${Math.round((((currentNode.rotation + worldYaw) % 360) + 360) % 360)}`
+          `${Math.round(((currentNode.rotation + worldYaw) % 360 + 360) % 360)}`
       );
 
-    if (RECENTRE_ON_ENTER) {
-      xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
-        // Let the headset report a stable pose before reading it.
-        setTimeout(recentre, 400);
-      });
-    }
+    xr.baseExperience.sessionManager.onXRSessionInit.add(() => {
+      // Let the headset report a stable pose before reading it.
+      setTimeout(recentre, 400);
+    });
 
     xr.input.onControllerAddedObservable.add((controller) => {
       controller.onMotionControllerInitObservable.add((motionController) => {
         // Trigger — cast the controller's own ray rather than asking the
-        // pointer helper, which can go stale after a tracked mesh is disposed.
+        // pointer helper, which can go stale after a mesh it was tracking is
+        // disposed.
         const pickRay = new Ray(Vector3.Zero(), Vector3.Zero());
         const trigger = motionController.getComponent("xr-standard-trigger");
         trigger?.onButtonStateChangedObservable.add((component) => {
@@ -878,17 +699,12 @@ window.addEventListener("keydown", (e) => {
 
 currentNode = NODES.find((n) => n.id === START_NODE) ?? NODES[0];
 
-const openingPanel = START_PANEL ? findPanel(START_PANEL) : null;
-
-if (openingPanel) {
-  currentPanel = openingPanel;
-  introYaw = openingPanel.yaw;
-  currentNode = NODES.find((n) => n.id === openingPanel.target) ?? currentNode;
+if (INTRO) {
   buildIntro();
-  drawOverlay(openingPanel.id);
+  drawOverlay("Intro");
 } else {
   if (currentNode.id !== NODES[0].id) {
-    dome.photoTexture = makePanoramaTexture(currentNode.image);
+    dome.photoTexture = new Texture(currentNode.image, scene);
   }
   applyWorldYaw();
   buildMarkers(currentNode);

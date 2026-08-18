@@ -68,8 +68,8 @@ const NODES: NodeConfig[] = [
     rotation: 0,
     hotspots: [
       { target: "meeting", yaw: 51, pitch: -5, label: "Private room" },
-      { target: "intro", yaw: 210, pitch: -5, label: "Back to the street" },
-      { target: "branch", yaw: 13, pitch: -18, label: "The counter" },
+      { target: "intro", yaw: 200, pitch: -5, label: "Back to the street" },
+      { target: "branch", yaw: 2, pitch: -18, label: "The counter" },
     ],
   },
   {
@@ -327,7 +327,6 @@ function buildMarkers(node: NodeConfig) {
     labelPlane.isPickable = false;
     labelPlane.parent = world;
     labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    labelPlane.preserveParentRotationForBillboard = true;
 
     const labelTexture = makeLabelTexture(spot.label);
     const labelMaterial = new StandardMaterial("labelMat", scene);
@@ -478,7 +477,6 @@ function buildIntro() {
   introLabel.isPickable = false;
   introLabel.parent = world;
   introLabel.billboardMode = Mesh.BILLBOARDMODE_ALL;
-  introLabel.preserveParentRotationForBillboard = true;
 
   const labelTexture = makeLabelTexture(INTRO.label);
   const labelMaterial = new StandardMaterial("introLabelMat", scene);
