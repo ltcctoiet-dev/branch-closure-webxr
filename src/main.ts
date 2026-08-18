@@ -25,6 +25,7 @@ import {
   DynamicTexture,
   Engine,
   FreeCamera,
+  HemisphericLight,
   Mesh,
   MeshBuilder,
   PhotoDome,
@@ -149,12 +150,12 @@ const RECENTRE_ON_ENTER = false;
 // a step. Not real parallax — the whole sphere moves as one. 0 disables it.
 const DOLLY_METRES = 2.2;
 const AVATAR = {
-  enabled: false,
+  enabled: true,
   node: "entry",
   folder: "/avatars/",
   file: "greeter.glb",
   yaw: 35,
-  distance: 3.5,
+  distance: 1.5,
   eyeHeight: 1.6,
   scale: 1,
   faceOffset: 180,
@@ -603,6 +604,60 @@ async function showPanel(id: string, approachYaw?: number) {
     busy = false;
   }
 }
+
+// --- Lighting --------------------------------------------------------------
+// The panorama and markers are all unlit, so the scene had no lights at all.
+// PBR materials need one, or they render black.
+
+const avatarLight = new HemisphericLight(
+  "avatarLight",
+  new Vector3(0.3, 1, 0.2),
+  scene
+);
+avatarLight.intensity = 1.1;
+avatarLight.groundColor = new Color3(0.35, 0.33, 0.3);
+
+// PBR also needs something to reflect. Environment texture only — no skybox,
+// no ground, so the panorama is untouched.
+scene.createDefaultEnvironment({ createSkybox: false, createGround: false });
+
+// --- Speech ----------------------------------------------------------------
+// Browser speech synthesis: no keys, no cost, no network. Robotic compared to
+// ElevenLabs, but it proves the flow before we add a paid voice.
+
+const GREETING =
+  "Hello, and welcome to the Banking Hub. Take your time having a look " +
+  "around. When you're ready, I can show you the counter or the private room.";
+
+let speaking = false;
+
+function speak(text: string) {
+  if (!("speechSynthesis" in window)) {
+    console.warn("This browser has no speech synthesis.");
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.92;   // slightly slow — the audience is older
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+
+  // Prefer a British English voice if one is installed.
+  const voices = window.speechSynthesis.getVoices();
+  const preferred =
+    voices.find((v) => v.lang === "en-GB" && /female|woman|Sonia|Libby/i.test(v.name)) ??
+    voices.find((v) => v.lang === "en-GB") ??
+    voices.find((v) => v.lang.startsWith("en"));
+
+  if (preferred) utterance.voice = preferred;
+
+  utterance.onstart = () => (speaking = true);
+  utterance.onend = () => (speaking = false);
+
+  window.speechSynthesis.speak(utterance);
+}
 // --- Avatar ----------------------------------------------------------------
 
 let avatarRoot: Mesh | null = null;
@@ -650,6 +705,7 @@ async function updateAvatar(node: NodeConfig) {
     );
 
     avatarRoot = root;
+    setTimeout(() => speak(GREETING), 800);
   } catch (err) {
     console.error("Avatar failed to load:", err);
   }
