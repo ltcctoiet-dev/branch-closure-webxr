@@ -148,6 +148,17 @@ const RECENTRE_ON_ENTER = false;
 // How far the dome slides past you during a jump, in metres. Turns a cut into
 // a step. Not real parallax — the whole sphere moves as one. 0 disables it.
 const DOLLY_METRES = 2.2;
+const AVATAR = {
+  enabled: false,
+  node: "entry",
+  folder: "/avatars/",
+  file: "greeter.glb",
+  yaw: 35,
+  distance: 3.5,
+  eyeHeight: 1.6,
+  scale: 1,
+  faceOffset: 180,
+};
 
 // ---------------------------------------------------------------------------
 
@@ -351,6 +362,7 @@ function buildMarkers(node: NodeConfig) {
   }
 
   positionMarkers();
+  updateAvatar(node);
 }
 
 // Local to `world`, so the recentre rotation carries them along with the
@@ -591,7 +603,57 @@ async function showPanel(id: string, approachYaw?: number) {
     busy = false;
   }
 }
+// --- Avatar ----------------------------------------------------------------
 
+let avatarRoot: Mesh | null = null;
+
+async function updateAvatar(node: NodeConfig) {
+  if (avatarRoot) {
+    avatarRoot.dispose(false, true);
+    avatarRoot = null;
+  }
+
+  if (!AVATAR.enabled || node.id !== AVATAR.node) return;
+
+  try {
+    const result = await SceneLoader.ImportMeshAsync(
+      "",
+      AVATAR.folder,
+      AVATAR.file,
+      scene
+    );
+
+    const root = result.meshes[0] as Mesh | undefined;
+    if (!root) return;
+
+    root.setParent(null);
+    root.parent = world;
+
+    result.meshes.forEach((mesh) => {
+      mesh.isPickable = false;
+      mesh.alwaysSelectAsActiveMesh = true;
+    });
+
+    const yaw = (AVATAR.yaw * Math.PI) / 180;
+    root.position.set(
+      AVATAR.distance * Math.sin(yaw),
+      -AVATAR.eyeHeight,
+      AVATAR.distance * Math.cos(yaw)
+    );
+
+    root.rotationQuaternion = null;
+    root.rotation.y = yaw + (AVATAR.faceOffset * Math.PI) / 180;
+    root.scaling.setAll(AVATAR.scale);
+
+    result.animationGroups.forEach((group, i) =>
+      i === 0 ? group.start(true) : group.stop()
+    );
+
+    avatarRoot = root;
+  } catch (err) {
+    console.error("Avatar failed to load:", err);
+  }
+}
 // --- Picking ---------------------------------------------------------------
 
 const findMarker = (mesh: any) => markers.find((m) => m.ball === mesh);
