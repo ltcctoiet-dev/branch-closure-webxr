@@ -31,12 +31,14 @@ import {
   PointerEventTypes,
   Ray,
   Scene,
+  SceneLoader,
   StandardMaterial,
   Texture,
   TransformNode,
   Vector3,
   WebXRDefaultExperience,
 } from "@babylonjs/core";
+import "@babylonjs/loaders/glTF";
 
 // ---------------------------------------------------------------------------
 // NODES — the only part you edit as you add panoramas.
