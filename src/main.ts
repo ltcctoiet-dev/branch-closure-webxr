@@ -153,7 +153,7 @@ const AVATAR = {
   enabled: true,
   node: "entry",
   folder: "/avatars/",
-  file: "greeter.glb",
+  file: "actor.glb",
   yaw: 35,
   distance: 1.5,
   eyeHeight: 1.6,
@@ -662,6 +662,49 @@ function speak(text: string) {
 
 let avatarRoot: Mesh | null = null;
 
+// --- Blendshapes -----------------------------------------------------------
+// ActorCore ships the ARKit 52 as A01_Brow_Inner_Up … A51_Mouth_Stretch_Right,
+// alongside its own Reallusion set. Stripping the index prefix, dropping the
+// underscores and lowercasing turns "A25_Jaw_Open" into "jawopen", which is
+// exactly what Convai's arkit name "jawOpen" normalises to.
+
+type BlendshapeTarget = { manager: any; index: number };
+
+const blendshapes = new Map<string, BlendshapeTarget[]>();
+
+const normalise = (name: string) =>
+  name.replace(/^[AT]\d+_/, "").replace(/_/g, "").toLowerCase();
+
+function buildBlendshapeMap(meshes: any[]) {
+  blendshapes.clear();
+
+  for (const mesh of meshes) {
+    const manager = mesh.morphTargetManager;
+    if (!manager) continue;
+
+    for (let i = 0; i < manager.numTargets; i++) {
+      const key = normalise(manager.getTarget(i).name);
+      const list = blendshapes.get(key) ?? [];
+      list.push({ manager, index: i });
+      blendshapes.set(key, list);
+    }
+  }
+
+  console.log(`Blendshape map built: ${blendshapes.size} names`);
+}
+
+// Convai sends { jawOpen: 0.4, mouthSmileLeft: 0.1, ... } — pass it straight in.
+function applyBlendshapes(values: Record<string, number>) {
+  for (const [name, value] of Object.entries(values)) {
+    const targets = blendshapes.get(normalise(name));
+    if (!targets) continue;
+
+    for (const { manager, index } of targets) {
+      manager.getTarget(index).influence = Math.max(0, Math.min(1, value));
+    }
+  }
+}
+
 async function updateAvatar(node: NodeConfig) {
   if (avatarRoot) {
     avatarRoot.dispose(false, true);
@@ -705,6 +748,7 @@ async function updateAvatar(node: NodeConfig) {
     );
 
     avatarRoot = root;
+    buildBlendshapeMap(result.meshes);
     setTimeout(() => speak(GREETING), 800);
   } catch (err) {
     console.error("Avatar failed to load:", err);
@@ -1016,3 +1060,18 @@ if (openingPanel) {
 
 engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
+// Rough mouth movement while the browser speech is playing. Not real lipsync —
+// a stand-in to confirm the blendshape plumbing works end to end.
+let mouthPhase = 0;
+
+scene.onBeforeRenderObservable.add(() => {
+  if (!blendshapes.size) return;
+
+  if (speaking) {
+    mouthPhase += engine.getDeltaTime() / 1000;
+    const openness = 0.15 + Math.abs(Math.sin(mouthPhase * 9)) * 0.35;
+    applyBlendshapes({ jawOpen: openness, mouthClose: 0 });
+  } else {
+    applyBlendshapes({ jawOpen: 0 });
+  }
+});
