@@ -156,7 +156,7 @@ const AVATAR = {
   file: "actor.glb",
   yaw: 35,
   distance: 1.5,
-  eyeHeight: 1.6,
+  eyeHeight: 2.0,
   scale: 1,
   faceOffset: 180,
 };
@@ -661,7 +661,8 @@ function speak(text: string) {
 // --- Avatar ----------------------------------------------------------------
 
 let avatarRoot: Mesh | null = null;
-
+let talkClip: any = null;
+let idleClip: any = null;
 // --- Blendshapes -----------------------------------------------------------
 // ActorCore ships the ARKit 52 as A01_Brow_Inner_Up … A51_Mouth_Stretch_Right,
 // alongside its own Reallusion set. Stripping the index prefix, dropping the
@@ -757,9 +758,25 @@ async function updateAvatar(node: NodeConfig) {
     root.rotation.y = yaw + (AVATAR.faceOffset * Math.PI) / 180;
     root.scaling.setAll(AVATAR.scale);
 
-    result.animationGroups.forEach((group, i) =>
-      i === 0 ? group.start(true) : group.stop()
+      // Two clips arrive: the real motion and an empty "Default" placeholder.
+    // Pick the longest one — the placeholder has zero duration.
+      const clips = [...result.animationGroups]
+      .filter((g) => g.to - g.from > 0.1)
+      .sort((a, b) => (b.to - b.from) - (a.to - a.from));
+
+    talkClip = clips[0] ?? null;
+    idleClip = clips[1] ?? null;
+
+    result.animationGroups.forEach((g) => g.stop());
+    idleClip?.start(true);
+
+    console.log(
+      "talk:", talkClip?.name ?? "none",
+      "idle:", idleClip?.name ?? "none"
     );
+
+    avatarRoot = root;
+    buildBlendshapeMap(result.meshes);
 
     avatarRoot = root;
     buildBlendshapeMap(result.meshes);
@@ -1116,4 +1133,19 @@ scene.onBeforeRenderObservable.add(() => {
     [VISEMES[visemeIndex]]: 0.85,
     jawOpen: 0.25,
   });
+});
+// Swap between idle and talking as the speech starts and stops.
+let wasSpeaking = false;
+
+scene.onBeforeRenderObservable.add(() => {
+  if (speaking === wasSpeaking) return;
+  wasSpeaking = speaking;
+
+  if (speaking) {
+    idleClip?.stop();
+    talkClip?.start(true);
+  } else {
+    talkClip?.stop();
+    idleClip?.start(true);
+  }
 });
