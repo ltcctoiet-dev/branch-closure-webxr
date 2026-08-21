@@ -731,6 +731,20 @@ async function updateAvatar(node: NodeConfig) {
       mesh.isPickable = false;
       mesh.alwaysSelectAsActiveMesh = true;
     });
+        result.meshes.forEach((mesh: any) => {
+      const mat = mesh.material as any;
+      if (!mat) return;
+
+      // The FBX conversion leaves everything transparent and mirror-shiny.
+      mat.transparencyMode = 0;        // opaque
+      mat.alpha = 1;
+      mat.backFaceCulling = true;
+
+      if ("metallic" in mat) {
+        mat.metallic = 0;
+        mat.roughness = 0.85;
+      }
+    });
 
     const yaw = (AVATAR.yaw * Math.PI) / 180;
     root.position.set(
@@ -1062,16 +1076,44 @@ engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
 // Rough mouth movement while the browser speech is playing. Not real lipsync —
 // a stand-in to confirm the blendshape plumbing works end to end.
-let mouthPhase = 0;
+// Rough mouth movement while the browser speech is playing. Not real lipsync —
+// jawOpen alone only drops the chin, so the lips need driving separately.
+// --- Placeholder mouth animation -------------------------------------------
+// Reallusion ships a viseme set (the V_ targets) designed for speech, which
+// looks better than combining ARKit targets by hand. Cycled at roughly natural
+// speech rate. This whole block gets deleted once Convai drives the face.
+
+const VISEMES = ["V_Open", "V_Wide", "V_Tight-O", "V_Lip_Open", "V_Explosive"];
+
+const VISEME_MS = 110;
+
+let visemeIndex = 0;
+let visemeTimer = 0;
+
+function clearVisemes() {
+  const zeroed: Record<string, number> = { jawOpen: 0 };
+  for (const name of VISEMES) zeroed[name] = 0;
+  applyBlendshapes(zeroed);
+}
 
 scene.onBeforeRenderObservable.add(() => {
   if (!blendshapes.size) return;
 
-  if (speaking) {
-    mouthPhase += engine.getDeltaTime() / 1000;
-    const openness = 0.15 + Math.abs(Math.sin(mouthPhase * 9)) * 0.35;
-    applyBlendshapes({ jawOpen: openness, mouthClose: 0 });
-  } else {
-    applyBlendshapes({ jawOpen: 0 });
+  if (!speaking) {
+    clearVisemes();
+    return;
   }
+
+  visemeTimer += engine.getDeltaTime();
+
+  if (visemeTimer > VISEME_MS) {
+    visemeTimer = 0;
+    clearVisemes();
+    visemeIndex = (visemeIndex + 1) % VISEMES.length;
+  }
+
+  applyBlendshapes({
+    [VISEMES[visemeIndex]]: 0.85,
+    jawOpen: 0.25,
+  });
 });
