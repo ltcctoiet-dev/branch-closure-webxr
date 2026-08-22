@@ -16,6 +16,7 @@
   "dependencies": {
     "@babylonjs/core": "^9.21.2",
     "@babylonjs/gui": "^9.20.0",
-    "@babylonjs/loaders": "^9.21.2"
+    "@babylonjs/loaders": "^9.21.2",
+    "@convai/web-sdk": "^1.7.0"
   }
 }
