@@ -3,3 +3,4 @@ dist/
 *.tar.gz
 public/avatars/*.glb
 .env
+.env

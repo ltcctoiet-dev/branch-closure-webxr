@@ -40,6 +40,7 @@ import {
   WebXRDefaultExperience,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
+import { ConvaiClient, createARKitNameMapper } from "@convai/web-sdk";
 
 // ---------------------------------------------------------------------------
 // NODES — the only part you edit as you add panoramas.
