@@ -1114,6 +1114,7 @@ function clearVisemes() {
 }
 
 scene.onBeforeRenderObservable.add(() => {
+   if (true) return;        // disabled: Convai drives the face now
   if (!blendshapes.size) return;
 
   if (!speaking) {
