@@ -1151,3 +1151,84 @@ scene.onBeforeRenderObservable.add(() => {
     idleClip?.start(true);
   }
 });
+// --- Convai ----------------------------------------------------------------
+
+let convai: any = null;
+let convaiSpeaking = false;
+
+async function startConversation() {
+  if (convai) return;
+
+  try {
+    // Must be on a user gesture and before entering VR — you cannot raise a
+    // permission prompt inside an immersive session.
+    await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    const client = new ConvaiClient();
+    convai = client;
+
+    await client.connect({
+      apiKey: import.meta.env.VITE_CONVAI_API_KEY,
+      characterId: import.meta.env.VITE_CONVAI_CHARACTER_ID,
+      startWithAudioOn: true,
+      ttsEnabled: true,
+      enableLipsync: true,
+      blendshapeConfig: { format: "arkit" },
+    });
+
+    client.blendshapeQueue.setMapper(createARKitNameMapper());
+
+    // The SDK's AudioRenderer is a React component, so the LiveKit track is
+    // attached by hand.
+    const attach = (track: any) => {
+      const element = track.attach();
+      element.autoplay = true;
+      element.style.display = "none";
+      document.body.appendChild(element);
+      element.play().catch(() => {});
+    };
+
+    client.room?.remoteParticipants?.forEach((p: any) =>
+      p.trackPublications?.forEach((pub: any) => pub.track && attach(pub.track))
+    );
+    client.room?.on?.("trackSubscribed", (track: any) => attach(track));
+
+    await client.audioControls?.enableAudio?.();
+    await client.audioControls?.unmuteAudio?.();
+
+    console.log("Convai connected.");
+  } catch (err) {
+    console.error("Convai failed:", err);
+  }
+}
+
+let loggedFrame = false;
+
+scene.onBeforeRenderObservable.add(() => {
+  if (!convai || !blendshapes.size) return;
+
+  const queue = convai.blendshapeQueue;
+  const speakingNow = queue.isBotSpeaking?.() ?? false;
+
+  if (speakingNow !== convaiSpeaking) {
+    convaiSpeaking = speakingNow;
+    if (speakingNow) {
+      idleClip?.stop();
+      talkClip?.start(true);
+    } else {
+      talkClip?.stop();
+      idleClip?.start(true);
+      applyBlendshapes({ jawOpen: 0 });
+    }
+  }
+
+  const frame = queue.getFrame?.();
+  if (!frame) return;
+
+  if (!loggedFrame) {
+    loggedFrame = true;
+    console.log("Frame shape:", frame);
+  }
+
+  if (!Array.isArray(frame)) applyBlendshapes(frame);
+});
