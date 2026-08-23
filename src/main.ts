@@ -40,7 +40,8 @@ import {
   WebXRDefaultExperience,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { ConvaiClient, createARKitNameMapper } from "@convai/web-sdk";
+import { ConvaiClient } from "@convai/web-sdk";
+import * as ConvaiSDK from "@convai/web-sdk";
 
 // ---------------------------------------------------------------------------
 // NODES — the only part you edit as you add panoramas.
@@ -545,6 +546,7 @@ async function enterFromIntro() {
   try {
     // No dolly here: the dome is hidden behind the panel, so there is nothing
     // to slide. The street panel simply fades out.
+    startConversation();
     await fade(0, 1);
     resetDolly();
 
@@ -1166,7 +1168,7 @@ async function startConversation() {
 
     const client = new ConvaiClient();
     convai = client;
-
+    (window as any).convai = client;
     await client.connect({
       apiKey: import.meta.env.VITE_CONVAI_API_KEY,
       characterId: import.meta.env.VITE_CONVAI_CHARACTER_ID,
@@ -1176,7 +1178,7 @@ async function startConversation() {
       blendshapeConfig: { format: "arkit" },
     });
 
-    client.blendshapeQueue.setMapper(createARKitNameMapper());
+     client.blendshapeQueue.setMapper((ConvaiSDK as any).identityMapper);
 
     // The SDK's AudioRenderer is a React component, so the LiveKit track is
     // attached by hand.
@@ -1195,8 +1197,18 @@ async function startConversation() {
 
     await client.audioControls?.enableAudio?.();
     await client.audioControls?.unmuteAudio?.();
+    console.log("Audio state after enable:", JSON.stringify(client.state));
 
     console.log("Convai connected.");
+    setInterval(() => {
+      const q = client.blendshapeQueue;
+      console.log(
+        "speaking:", q.isBotSpeaking?.(),
+        "hasFrames:", q.hasFrames?.(),
+        "length:", q.length,
+        "state:", client.state.isSpeaking
+      );
+    }, 1500);
   } catch (err) {
     console.error("Convai failed:", err);
   }
@@ -1225,10 +1237,20 @@ scene.onBeforeRenderObservable.add(() => {
   const frame = queue.getFrame?.();
   if (!frame) return;
 
-  if (!loggedFrame) {
+ if (!loggedFrame) {
     loggedFrame = true;
     console.log("Frame shape:", frame);
+    console.log("Is array:", Array.isArray(frame), "length:", frame?.length);
+    const test = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
+    console.log("Mapped to:", test);
+    console.log("Blendshape keys sample:", [...blendshapes.keys()].slice(0, 10));
   }
 
-  if (!Array.isArray(frame)) applyBlendshapes(frame);
+   if (Array.isArray(frame)) {
+    // Order61 array → { jawOpen: 0.4, ... }
+    const named = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
+    if (named) applyBlendshapes(named);
+  } else {
+    applyBlendshapes(frame);
+  }
 });
