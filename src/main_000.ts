@@ -43,12 +43,6 @@ import {
 import "@babylonjs/loaders/glTF";
 import { ConvaiClient } from "@convai/web-sdk";
 import * as ConvaiSDK from "@convai/web-sdk";
-import {
-  handleSurveyPick,
-  initSurvey,
-  isSurveyActive,
-  startSurvey,
-} from "./survey";
 
 
 // ---------------------------------------------------------------------------
@@ -206,9 +200,6 @@ let worldYaw = 0;
 // can see hangs off world, so the panorama and the markers rotate as one.
 const rig = new TransformNode("rig", scene);
 const world = new TransformNode("world", scene);
-
-// The survey panels hang off the head rig and use the same voice as the avatar.
-initSurvey({ scene, world, speak });
 world.parent = rig;
 
 // useDirectMapping keeps the equirectangular image on the sphere as-is.
@@ -827,22 +818,8 @@ const isInteractive = (mesh: any) =>
     !!findMarker(mesh) ||
     String(mesh.name).startsWith("surveyOption:"));
 
-// The baseline is taken outside, before she has had a chance to reassure them.
-let preSurveyDone = false;
-
 function activate(mesh: any) {
-  if (handleSurveyPick(mesh)) return;
-
-  // Ignore everything else while questions are on screen.
-  if (isSurveyActive()) return;
-
   if (isIntroTarget(mesh)) {
-    if (currentPanel?.id === "intro" && !preSurveyDone) {
-      preSurveyDone = true;
-      startSurvey("pre", () => enterFromIntro());
-      return;
-    }
-
     enterFromIntro();
     return;
   }
@@ -1395,11 +1372,4 @@ function hideVideo() {
 window.addEventListener("keydown", (e) => {
   if (e.key !== "v") return;
   videoPlane ? hideVideo() : showVideo();
-});
-
-// Testing shortcuts: 1 runs the baseline survey, 2 runs the closing one.
-// Keep these for demos — being able to force the survey is a useful safety net.
-window.addEventListener("keydown", (e) => {
-  if (e.key === "1") startSurvey("pre");
-  if (e.key === "2") startSurvey("post");
 });
