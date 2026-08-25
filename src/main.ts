@@ -37,11 +37,13 @@ import {
   Texture,
   TransformNode,
   Vector3,
+  VideoTexture,
   WebXRDefaultExperience,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { ConvaiClient } from "@convai/web-sdk";
 import * as ConvaiSDK from "@convai/web-sdk";
+
 
 // ---------------------------------------------------------------------------
 // NODES — the only part you edit as you add panoramas.
@@ -1117,7 +1119,7 @@ function clearVisemes() {
 }
 
 scene.onBeforeRenderObservable.add(() => {
-   if (true) return;        // disabled: Convai drives the face now
+  if (true) return;    // disabled: Convai drives the face now
   if (!blendshapes.size) return;
 
   if (!speaking) {
@@ -1197,7 +1199,7 @@ async function startConversation() {
 
     await client.audioControls?.enableAudio?.();
     await client.audioControls?.unmuteAudio?.();
-    console.log("Audio state after enable:", JSON.stringify(client.state));
+  
 
     console.log("Convai connected.");
     setInterval(() => {
@@ -1234,8 +1236,22 @@ scene.onBeforeRenderObservable.add(() => {
     }
   }
 
-  const frame = queue.getFrame?.();
+  // getFrame() and consumeFrames() both return undefined here; getFrames()
+  // hands back the whole buffer as Float32Array(61) entries, so take the
+  // oldest and drop it. Frames arrive at 60fps, matching the render loop.
+  const frames = queue.getFrames?.();
+  if (!frames || !frames.length) return;
+
+  const frame = frames.shift();
   if (!frame) return;
+  if (!(window as any).loggedOnce) {
+    (window as any).loggedOnce = true;
+    const named = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
+    console.log("Named frame:", named);
+    console.log("First 5 keys:", named ? Object.keys(named).slice(0, 5) : "none");
+    console.log("Character keys sample:", [...blendshapes.keys()].slice(0, 8));
+    console.log("Does jawopen exist?", blendshapes.has("jawopen"));
+  }
 
  if (!loggedFrame) {
     loggedFrame = true;
@@ -1246,11 +1262,91 @@ scene.onBeforeRenderObservable.add(() => {
     console.log("Blendshape keys sample:", [...blendshapes.keys()].slice(0, 10));
   }
 
-   if (Array.isArray(frame)) {
+     if (frame instanceof Float32Array || Array.isArray(frame)) {
     // Order61 array → { jawOpen: 0.4, ... }
     const named = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
     if (named) applyBlendshapes(named);
   } else {
     applyBlendshapes(frame);
   }
+});
+// --- Video panel -----------------------------------------------------------
+// A phone-shaped screen she can show you. Plays an MP4 on a plane — this works
+// in an immersive session, unlike an iframe or a YouTube embed.
+
+const VIDEO_PANEL = {
+  file: "/video/cheque-deposit.mp4",
+  yaw: 25,          // direction it appears in, same convention as markers
+  pitch: -3,        // slightly below eye level
+  distance: 2.2,
+  height: 1.4,      // metres tall
+  portrait: true,   // true for a phone screen, false for landscape
+};
+
+let videoPlane: Mesh | null = null;
+let videoTexture: any = null;
+
+function showVideo() {
+  if (videoPlane) return;
+
+  const aspect = VIDEO_PANEL.portrait ? 9 / 16 : 16 / 9;
+
+  videoPlane = MeshBuilder.CreatePlane(
+    "videoPanel",
+    {
+      width: VIDEO_PANEL.height * aspect,
+      height: VIDEO_PANEL.height,
+      sideOrientation: Mesh.DOUBLESIDE,
+    },
+    scene
+  );
+  videoPlane.parent = world;
+  videoPlane.renderingGroupId = 1;
+  videoPlane.isPickable = false;
+
+  const yaw = (VIDEO_PANEL.yaw * Math.PI) / 180;
+  const pitch = (VIDEO_PANEL.pitch * Math.PI) / 180;
+  const horizontal = VIDEO_PANEL.distance * Math.cos(pitch);
+
+  videoPlane.position.set(
+    horizontal * Math.sin(yaw),
+    VIDEO_PANEL.distance * Math.sin(pitch),
+    horizontal * Math.cos(yaw)
+  );
+  videoPlane.rotation.y = yaw;
+
+  videoTexture = new VideoTexture(
+    "chequeVideo",
+    VIDEO_PANEL.file,
+    scene,
+    true,     // generate mipmaps
+    false,    // invertY
+    VideoTexture.TRILINEAR_SAMPLINGMODE,
+    { autoPlay: true, loop: false, muted: false }
+  );
+
+  const material = new StandardMaterial("videoMat", scene);
+  material.diffuseTexture = videoTexture;
+  material.emissiveTexture = videoTexture;
+  material.disableLighting = true;
+  material.backFaceCulling = false;
+  videoPlane.material = material;
+
+  // Clear itself away when it finishes.
+  videoTexture.video?.addEventListener("ended", () => hideVideo());
+
+  console.log("Video panel shown");
+}
+
+function hideVideo() {
+  videoTexture?.video?.pause();
+  videoTexture?.dispose();
+  videoPlane?.dispose(false, true);
+  videoTexture = null;
+  videoPlane = null;
+  console.log("Video panel hidden");
+}
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "v") return;
+  videoPlane ? hideVideo() : showVideo();
 });
