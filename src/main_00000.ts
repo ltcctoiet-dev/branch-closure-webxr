@@ -25,18 +25,32 @@ import {
   DynamicTexture,
   Engine,
   FreeCamera,
+  HemisphericLight,
   Mesh,
   MeshBuilder,
   PhotoDome,
   PointerEventTypes,
   Ray,
   Scene,
+  SceneLoader,
   StandardMaterial,
   Texture,
   TransformNode,
   Vector3,
+  VideoTexture,
   WebXRDefaultExperience,
 } from "@babylonjs/core";
+import "@babylonjs/loaders/glTF";
+import { ConvaiClient } from "@convai/web-sdk";
+import * as ConvaiSDK from "@convai/web-sdk";
+import {
+  handleSurveyPick,
+  highlightSurveyHover,
+  initSurvey,
+  isSurveyActive,
+  startSurvey,
+} from "./survey";
+
 
 // ---------------------------------------------------------------------------
 // NODES — the only part you edit as you add panoramas.
@@ -68,8 +82,8 @@ const NODES: NodeConfig[] = [
     rotation: 0,
     hotspots: [
       { target: "meeting", yaw: 51, pitch: -5, label: "Private room" },
-      { target: "intro", yaw: 200, pitch: -5, label: "Back to the street" },
-      { target: "branch", yaw: 2, pitch: -18, label: "The counter" },
+      { target: "intro", yaw: 210, pitch: -5, label: "Back to the street" },
+      { target: "branch", yaw: 13, pitch: -18, label: "The counter" },
     ],
   },
   {
@@ -146,6 +160,17 @@ const RECENTRE_ON_ENTER = false;
 // How far the dome slides past you during a jump, in metres. Turns a cut into
 // a step. Not real parallax — the whole sphere moves as one. 0 disables it.
 const DOLLY_METRES = 2.2;
+const AVATAR = {
+  enabled: true,
+  node: "entry",
+  folder: "/avatars/",
+  file: "actor.glb",
+  yaw: 35,
+  distance: 1.5,
+  eyeHeight: 2.0,
+  scale: 1,
+  faceOffset: 180,
+};
 
 // ---------------------------------------------------------------------------
 
@@ -182,6 +207,9 @@ let worldYaw = 0;
 // can see hangs off world, so the panorama and the markers rotate as one.
 const rig = new TransformNode("rig", scene);
 const world = new TransformNode("world", scene);
+
+// The survey panels hang off the head rig and use the same voice as the avatar.
+initSurvey({ scene, world, speak });
 world.parent = rig;
 
 // useDirectMapping keeps the equirectangular image on the sphere as-is.
@@ -327,6 +355,7 @@ function buildMarkers(node: NodeConfig) {
     labelPlane.isPickable = false;
     labelPlane.parent = world;
     labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
+    labelPlane.preserveParentRotationForBillboard = true;
 
     const labelTexture = makeLabelTexture(spot.label);
     const labelMaterial = new StandardMaterial("labelMat", scene);
@@ -348,6 +377,7 @@ function buildMarkers(node: NodeConfig) {
   }
 
   positionMarkers();
+  updateAvatar(node);
 }
 
 // Local to `world`, so the recentre rotation carries them along with the
@@ -477,6 +507,7 @@ function buildIntro() {
   introLabel.isPickable = false;
   introLabel.parent = world;
   introLabel.billboardMode = Mesh.BILLBOARDMODE_ALL;
+  introLabel.preserveParentRotationForBillboard = true;
 
   const labelTexture = makeLabelTexture(INTRO.label);
   const labelMaterial = new StandardMaterial("introLabelMat", scene);
@@ -489,6 +520,8 @@ function buildIntro() {
 
   inIntro = true;
   dome.mesh.setEnabled(false);
+  // Panels are flat screens — she does not belong in front of them.
+  avatarRoot?.setEnabled(false);
   positionIntro();
 }
 
@@ -508,8 +541,12 @@ function positionIntro() {
   introPick.scaling.y = introPlane.scaling.y;
 
   const drop = (introPlane.scaling.y * INTRO.width * 0.5625) / 2 + 0.7;
-  introLabel.position.set(x, -drop, z);
-
+    const pull = 0.35;
+  introLabel.position.set(
+    x * (1 - pull / INTRO.distance),
+    -drop,
+    z * (1 - pull / INTRO.distance)
+  );
   introBall.position.set(x, -drop - 0.95, z);
 }
 
@@ -527,6 +564,7 @@ async function enterFromIntro() {
   try {
     // No dolly here: the dome is hidden behind the panel, so there is nothing
     // to slide. The street panel simply fades out.
+    startConversation();
     await fade(0, 1);
     resetDolly();
 
@@ -543,6 +581,7 @@ async function enterFromIntro() {
 
     currentNode = destination;
     dome.mesh.setEnabled(true);
+    avatarRoot?.setEnabled(true);
     dome.photoTexture = makePanoramaTexture(currentNode.image);
     applyWorldYaw();
 
@@ -588,6 +627,194 @@ async function showPanel(id: string, approachYaw?: number) {
   }
 }
 
+// --- Lighting --------------------------------------------------------------
+// The panorama and markers are all unlit, so the scene had no lights at all.
+// PBR materials need one, or they render black.
+
+const avatarLight = new HemisphericLight(
+  "avatarLight",
+  new Vector3(0.3, 1, 0.2),
+  scene
+);
+avatarLight.intensity = 1.1;
+avatarLight.groundColor = new Color3(0.35, 0.33, 0.3);
+
+// PBR also needs something to reflect. Environment texture only — no skybox,
+// no ground, so the panorama is untouched.
+scene.createDefaultEnvironment({ createSkybox: false, createGround: false });
+
+// --- Speech ----------------------------------------------------------------
+// Browser speech synthesis: no keys, no cost, no network. Robotic compared to
+// ElevenLabs, but it proves the flow before we add a paid voice.
+
+const GREETING =
+  "Hello, and welcome to the Banking Hub. Take your time having a look " +
+  "around. When you're ready, I can show you the counter or the private room.";
+
+let speaking = false;
+
+function speak(text: string) {
+  if (!("speechSynthesis" in window)) {
+    console.warn("This browser has no speech synthesis.");
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 0.92;   // slightly slow — the audience is older
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+
+  // Prefer a British English voice if one is installed.
+  const voices = window.speechSynthesis.getVoices();
+  const preferred =
+    voices.find((v) => v.lang === "en-GB" && /female|woman|Sonia|Libby/i.test(v.name)) ??
+    voices.find((v) => v.lang === "en-GB") ??
+    voices.find((v) => v.lang.startsWith("en"));
+
+  if (preferred) utterance.voice = preferred;
+
+  utterance.onstart = () => (speaking = true);
+  utterance.onend = () => (speaking = false);
+
+  window.speechSynthesis.speak(utterance);
+}
+// --- Avatar ----------------------------------------------------------------
+
+let avatarRoot: Mesh | null = null;
+let hasGreeted = false;
+let talkClip: any = null;
+let idleClip: any = null;
+// --- Blendshapes -----------------------------------------------------------
+// ActorCore ships the ARKit 52 as A01_Brow_Inner_Up … A51_Mouth_Stretch_Right,
+// alongside its own Reallusion set. Stripping the index prefix, dropping the
+// underscores and lowercasing turns "A25_Jaw_Open" into "jawopen", which is
+// exactly what Convai's arkit name "jawOpen" normalises to.
+
+type BlendshapeTarget = { manager: any; index: number };
+
+const blendshapes = new Map<string, BlendshapeTarget[]>();
+
+const normalise = (name: string) =>
+  name.replace(/^[AT]\d+_/, "").replace(/_/g, "").toLowerCase();
+
+function buildBlendshapeMap(meshes: any[]) {
+  blendshapes.clear();
+
+  for (const mesh of meshes) {
+    const manager = mesh.morphTargetManager;
+    if (!manager) continue;
+
+    for (let i = 0; i < manager.numTargets; i++) {
+      const key = normalise(manager.getTarget(i).name);
+      const list = blendshapes.get(key) ?? [];
+      list.push({ manager, index: i });
+      blendshapes.set(key, list);
+    }
+  }
+
+  console.log(`Blendshape map built: ${blendshapes.size} names`);
+}
+
+// Convai sends { jawOpen: 0.4, mouthSmileLeft: 0.1, ... } — pass it straight in.
+function applyBlendshapes(values: Record<string, number>) {
+  for (const [name, value] of Object.entries(values)) {
+    const targets = blendshapes.get(normalise(name));
+    if (!targets) continue;
+
+    for (const { manager, index } of targets) {
+      manager.getTarget(index).influence = Math.max(0, Math.min(1, value));
+    }
+  }
+}
+
+async function updateAvatar(node: NodeConfig) {
+  const wanted = AVATAR.enabled && node.id === AVATAR.node;
+
+  // Load once, then just show and hide. Disposing meant re-downloading the
+  // whole GLB on every jump, which showed as a visible pop.
+  if (avatarRoot) {
+    avatarRoot.setEnabled(wanted);
+    return;
+  }
+
+  if (!wanted) return;
+
+  try {
+    const result = await SceneLoader.ImportMeshAsync(
+      "",
+      AVATAR.folder,
+      AVATAR.file,
+      scene
+    );
+
+    const root = result.meshes[0] as Mesh | undefined;
+    if (!root) return;
+
+    root.setParent(null);
+    root.parent = world;
+
+    result.meshes.forEach((mesh) => {
+      mesh.isPickable = false;
+      mesh.alwaysSelectAsActiveMesh = true;
+    });
+        result.meshes.forEach((mesh: any) => {
+      const mat = mesh.material as any;
+      if (!mat) return;
+
+      // The FBX conversion leaves everything transparent and mirror-shiny.
+      mat.transparencyMode = 0;        // opaque
+      mat.alpha = 1;
+      mat.backFaceCulling = true;
+
+      if ("metallic" in mat) {
+        mat.metallic = 0;
+        mat.roughness = 0.85;
+      }
+    });
+
+    const yaw = (AVATAR.yaw * Math.PI) / 180;
+    root.position.set(
+      AVATAR.distance * Math.sin(yaw),
+      -AVATAR.eyeHeight,
+      AVATAR.distance * Math.cos(yaw)
+    );
+
+    root.rotationQuaternion = null;
+    root.rotation.y = yaw + (AVATAR.faceOffset * Math.PI) / 180;
+    root.scaling.setAll(AVATAR.scale);
+
+      // Two clips arrive: the real motion and an empty "Default" placeholder.
+    // Pick the longest one — the placeholder has zero duration.
+      const clips = [...result.animationGroups]
+      .filter((g) => g.to - g.from > 0.1)
+      .sort((a, b) => (b.to - b.from) - (a.to - a.from));
+
+    talkClip = clips[0] ?? null;
+    idleClip = clips[1] ?? null;
+
+    result.animationGroups.forEach((g) => g.stop());
+    idleClip?.start(true);
+
+    console.log(
+      "talk:", talkClip?.name ?? "none",
+      "idle:", idleClip?.name ?? "none"
+    );
+
+    avatarRoot = root;
+    buildBlendshapeMap(result.meshes);
+
+    avatarRoot = root;
+    buildBlendshapeMap(result.meshes);
+    if (!hasGreeted) {
+      hasGreeted = true;
+      // setTimeout(() => speak(GREETING), 800);
+    }
+  } catch (err) {
+    console.error("Avatar failed to load:", err);
+  }
+}
 // --- Picking ---------------------------------------------------------------
 
 const findMarker = (mesh: any) => markers.find((m) => m.ball === mesh);
@@ -596,10 +823,27 @@ const isIntroTarget = (mesh: any) =>
   !!mesh && (mesh === introPick || mesh === introBall || mesh === introPlane);
 
 const isInteractive = (mesh: any) =>
-  !!mesh && (isIntroTarget(mesh) || !!findMarker(mesh));
+  !!mesh &&
+  (isIntroTarget(mesh) ||
+    !!findMarker(mesh) ||
+    String(mesh.name).startsWith("surveyOption:"));
+
+// The baseline is taken outside, before she has had a chance to reassure them.
+let preSurveyDone = false;
 
 function activate(mesh: any) {
+  if (handleSurveyPick(mesh)) return;
+
+  // Ignore everything else while questions are on screen.
+  if (isSurveyActive()) return;
+
   if (isIntroTarget(mesh)) {
+    if (currentPanel?.id === "intro" && !preSurveyDone) {
+      preSurveyDone = true;
+      startSurvey("pre", () => enterFromIntro());
+      return;
+    }
+
     enterFromIntro();
     return;
   }
@@ -614,6 +858,7 @@ scene.onPointerObservable.add((info) => {
     markers.forEach((m) => {
       m.material.emissiveColor = m.ball === picked ? HOVER_COLOR : IDLE_COLOR;
     });
+    highlightSurveyHover(picked);
     return;
   }
 
@@ -894,3 +1139,320 @@ if (openingPanel) {
 
 engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
+// Rough mouth movement while the browser speech is playing. Not real lipsync —
+// a stand-in to confirm the blendshape plumbing works end to end.
+// Rough mouth movement while the browser speech is playing. Not real lipsync —
+// jawOpen alone only drops the chin, so the lips need driving separately.
+// --- Placeholder mouth animation -------------------------------------------
+// Reallusion ships a viseme set (the V_ targets) designed for speech, which
+// looks better than combining ARKit targets by hand. Cycled at roughly natural
+// speech rate. This whole block gets deleted once Convai drives the face.
+
+const VISEMES = ["V_Open", "V_Wide", "V_Tight-O", "V_Lip_Open", "V_Explosive"];
+
+const VISEME_MS = 110;
+
+let visemeIndex = 0;
+let visemeTimer = 0;
+
+function clearVisemes() {
+  const zeroed: Record<string, number> = { jawOpen: 0 };
+  for (const name of VISEMES) zeroed[name] = 0;
+  applyBlendshapes(zeroed);
+}
+
+scene.onBeforeRenderObservable.add(() => {
+  if (true) return;    // disabled: Convai drives the face now
+  if (!blendshapes.size) return;
+
+  if (!speaking) {
+    clearVisemes();
+    return;
+  }
+
+  visemeTimer += engine.getDeltaTime();
+
+  if (visemeTimer > VISEME_MS) {
+    visemeTimer = 0;
+    clearVisemes();
+    visemeIndex = (visemeIndex + 1) % VISEMES.length;
+  }
+
+  applyBlendshapes({
+    [VISEMES[visemeIndex]]: 0.85,
+    jawOpen: 0.25,
+  });
+});
+// Swap between idle and talking as the speech starts and stops.
+let wasSpeaking = false;
+
+scene.onBeforeRenderObservable.add(() => {
+  if (speaking === wasSpeaking) return;
+  wasSpeaking = speaking;
+
+  if (speaking) {
+    idleClip?.stop();
+    talkClip?.start(true);
+  } else {
+    talkClip?.stop();
+    idleClip?.start(true);
+  }
+});
+
+
+// --- Convai ----------------------------------------------------------------
+
+let convai: any = null;
+let convaiSpeaking = false;
+
+async function startConversation() {
+  if (convai) return;
+
+  try {
+    // Must be on a user gesture and before entering VR — you cannot raise a
+    // permission prompt inside an immersive session.
+    await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    const client = new ConvaiClient();
+    convai = client;
+    (window as any).convai = client;
+    await client.connect({
+      apiKey: import.meta.env.VITE_CONVAI_API_KEY,
+      characterId: import.meta.env.VITE_CONVAI_CHARACTER_ID,
+      startWithAudioOn: true,
+      ttsEnabled: true,
+      enableLipsync: true,
+      blendshapeConfig: { format: "arkit" },
+    });
+
+     client.blendshapeQueue.setMapper((ConvaiSDK as any).identityMapper);
+
+    // The SDK's AudioRenderer is a React component, so the LiveKit track is
+    // attached by hand.
+    const attach = (track: any) => {
+      const element = track.attach();
+      element.autoplay = true;
+      element.style.display = "none";
+      document.body.appendChild(element);
+      element.play().catch(() => {});
+    };
+
+    client.room?.remoteParticipants?.forEach((p: any) =>
+      p.trackPublications?.forEach((pub: any) => pub.track && attach(pub.track))
+    );
+    client.room?.on?.("trackSubscribed", (track: any) => attach(track));
+
+    await client.audioControls?.enableAudio?.();
+    await client.audioControls?.unmuteAudio?.();
+  
+
+    console.log("Convai connected.");
+  setTimeout(() => {
+      (client as any).sendUserTextMessage?.("Hello, I've just arrived.");
+    }, 1500);
+    setInterval(() => {
+      const q = client.blendshapeQueue;
+      console.log(
+        "speaking:", q.isBotSpeaking?.(),
+        "hasFrames:", q.hasFrames?.(),
+        "length:", q.length,
+        "state:", client.state.isSpeaking
+      );
+    }, 1500);
+  } catch (err) {
+    console.error("Convai failed:", err);
+  }
+}
+
+let loggedFrame = false;
+
+scene.onBeforeRenderObservable.add(() => {
+  if (!convai || !blendshapes.size) return;
+
+  const queue = convai.blendshapeQueue;
+  const speakingNow = queue.isBotSpeaking?.() ?? false;
+
+  if (speakingNow !== convaiSpeaking) {
+    convaiSpeaking = speakingNow;
+    if (speakingNow) {
+      idleClip?.stop();
+      talkClip?.start(true);
+    } else {
+      talkClip?.stop();
+      idleClip?.start(true);
+      applyBlendshapes({ jawOpen: 0 });
+    }
+  }
+
+  // getFrame() and consumeFrames() both return undefined here; getFrames()
+  // hands back the whole buffer as Float32Array(61) entries, so take the
+  // oldest and drop it. Frames arrive at 60fps, matching the render loop.
+  const frames = queue.getFrames?.();
+  if (!frames || !frames.length) return;
+
+  const frame = frames.shift();
+  if (!frame) return;
+  if (!(window as any).loggedOnce) {
+    (window as any).loggedOnce = true;
+    const named = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
+    console.log("Named frame:", named);
+    console.log("First 5 keys:", named ? Object.keys(named).slice(0, 5) : "none");
+    console.log("Character keys sample:", [...blendshapes.keys()].slice(0, 8));
+    console.log("Does jawopen exist?", blendshapes.has("jawopen"));
+  }
+
+ if (!loggedFrame) {
+    loggedFrame = true;
+    console.log("Frame shape:", frame);
+    console.log("Is array:", Array.isArray(frame), "length:", frame?.length);
+    const test = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
+    console.log("Mapped to:", test);
+    console.log("Blendshape keys sample:", [...blendshapes.keys()].slice(0, 10));
+  }
+
+     if (frame instanceof Float32Array || Array.isArray(frame)) {
+    // Order61 array → { jawOpen: 0.4, ... }
+    const named = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
+    if (named) applyBlendshapes(named);
+  } else {
+    applyBlendshapes(frame);
+  }
+});
+// --- Video panel -----------------------------------------------------------
+// A phone-shaped screen she can show you. Plays an MP4 on a plane — this works
+// in an immersive session, unlike an iframe or a YouTube embed.
+
+const VIDEOS: Record<string, string> = {
+  cheque: "/video/cheque-deposit.mp4",
+  app: "/video/mobile-app.mp4",
+};
+
+const VIDEO_PANEL = {
+  yaw: 25,
+  pitch: -3,
+  distance: 2.2,
+  height: 1.4,
+  portrait: true,
+};
+
+let videoPlane: Mesh | null = null;
+let videoTexture: any = null;
+
+function showVideo(which: keyof typeof VIDEOS = "cheque") {
+  if (videoPlane) hideVideo();
+
+  const file = VIDEOS[which];
+  if (!file) return;
+
+  const aspect = VIDEO_PANEL.portrait ? 9 / 16 : 16 / 9;
+
+  videoPlane = MeshBuilder.CreatePlane(
+    "videoPanel",
+    {
+      width: VIDEO_PANEL.height * aspect,
+      height: VIDEO_PANEL.height,
+      sideOrientation: Mesh.DOUBLESIDE,
+    },
+    scene
+  );
+  videoPlane.parent = world;
+  videoPlane.renderingGroupId = 1;
+  videoPlane.isPickable = false;
+
+  const yaw = (VIDEO_PANEL.yaw * Math.PI) / 180;
+  const pitch = (VIDEO_PANEL.pitch * Math.PI) / 180;
+  const horizontal = VIDEO_PANEL.distance * Math.cos(pitch);
+
+  videoPlane.position.set(
+    horizontal * Math.sin(yaw),
+    VIDEO_PANEL.distance * Math.sin(pitch),
+    horizontal * Math.cos(yaw)
+  );
+  videoPlane.rotation.y = yaw;
+
+  videoTexture = new VideoTexture(
+    "chequeVideo",
+    file,
+    scene,
+    true,     // generate mipmaps
+    false,    // invertY
+    VideoTexture.TRILINEAR_SAMPLINGMODE,
+    { autoPlay: true, loop: false, muted: false }
+  );
+
+  const material = new StandardMaterial("videoMat", scene);
+  material.diffuseTexture = videoTexture;
+  material.emissiveTexture = videoTexture;
+  material.disableLighting = true;
+  material.backFaceCulling = false;
+  videoPlane.material = material;
+
+  // Clear itself away when it finishes.
+  videoTexture.video?.addEventListener("ended", () => hideVideo());
+
+  console.log("Video panel shown");
+}
+
+function hideVideo() {
+  videoTexture?.video?.pause();
+  videoTexture?.dispose();
+  videoPlane?.dispose(false, true);
+  videoTexture = null;
+  videoPlane = null;
+  console.log("Video panel hidden");
+}
+window.addEventListener("keydown", (e) => {
+  if (e.key === "v") videoPlane ? hideVideo() : showVideo("cheque");
+  if (e.key === "b") videoPlane ? hideVideo() : showVideo("app");
+});
+
+// Testing shortcuts: 1 runs the baseline survey, 2 runs the closing one.
+// Keep these for demos — being able to force the survey is a useful safety net.
+window.addEventListener("keydown", (e) => {
+  if (e.key === "1") startSurvey("pre");
+  if (e.key === "2") startSurvey("post");
+});
+
+// --- Video cues ------------------------------------------------------------
+// She says a fixed line from the knowledge base; that line plays the film.
+// More dependable than guessing intent, since the wording is ours.
+
+const VIDEO_CUES: { phrase: string; video: keyof typeof VIDEOS }[] = [
+  { phrase: "how to deposit a cheque", video: "cheque" },
+  { phrase: "around the mobile banking app", video: "app" },
+];
+
+let lastChatCount = 0;
+let loggedChatShape = false;
+
+scene.onBeforeRenderObservable.add(() => {
+  if (!convai) return;
+
+  const messages = convai.chatMessages ?? [];
+  if (messages.length === lastChatCount) return;
+
+  const fresh = messages.slice(lastChatCount);
+  lastChatCount = messages.length;
+
+  for (const message of fresh) {
+    if (!loggedChatShape) {
+      loggedChatShape = true;
+      console.log("Chat message shape:", message);
+    }
+
+    const text = String(
+      (message as any)?.text ??
+        (message as any)?.content ??
+        (message as any)?.message ??
+        ""
+    ).toLowerCase();
+
+    if (!text) continue;
+
+    const cue = VIDEO_CUES.find((c) => text.includes(c.phrase));
+    if (cue) {
+      // Let her finish the sentence before the screen appears.
+      setTimeout(() => showVideo(cue.video), 1200);
+    }
+  }
+});

@@ -104,63 +104,35 @@ let phase: SurveyPhase = "pre";
 let questions: SurveyQuestion[] = [];
 let index = -1;
 let meshes: Mesh[] = [];
-let optionButtons: { mesh: Mesh; option: string; width: number }[] = [];
 let onComplete: (() => void) | null = null;
 
 export const isSurveyActive = () => index >= 0;
-
-/** Call from the pointer-move handler so buttons respond to the controller ray. */
-export function highlightSurveyHover(mesh: any) {
-  if (index < 0) return;
-
-  optionButtons.forEach((entry) => {
-    if (!entry.mesh.isPickable) return;
-    const wanted = entry.mesh === mesh ? BUTTON_HOVER : BUTTON_IDLE;
-    if ((entry.mesh as any)._paint === wanted) return;
-    (entry.mesh as any)._paint = wanted;
-    repaintButton(entry, wanted);
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Drawing
 // ---------------------------------------------------------------------------
 
-const BUTTON_IDLE = "rgba(20,90,86,0.92)";
-const BUTTON_HOVER = "rgba(34,140,132,0.95)";
-const BUTTON_CHOSEN = "rgba(244,168,54,0.97)";
-
 function clearMeshes() {
   meshes.forEach((m) => m.dispose(false, true));
   meshes = [];
-  optionButtons = [];
-}
-
-/** Swaps a button's background without moving or re-parenting it. */
-function repaintButton(entry: { mesh: Mesh; option: string; width: number }, background: string) {
-  const material = entry.mesh.material as StandardMaterial | null;
-  const old = material?.diffuseTexture;
-
-  const texture = makeCardTexture(entry.option, entry.width, 0.34, 0.45, background);
-
-  if (material) {
-    material.diffuseTexture = texture;
-    material.emissiveTexture = texture;
-    material.opacityTexture = texture;
-  }
-
-  old?.dispose();
 }
 
 /** A card with wrapped, auto-sized white text on a dark background. */
-function makeCardTexture(
+function makeTextPlane(
   text: string,
   width: number,
   height: number,
   fontScale: number,
-  background: string
-): DynamicTexture {
+  background = "rgba(10,20,40,0.88)"
+): Mesh {
   const { scene } = deps!;
+
+  const plane = MeshBuilder.CreatePlane(
+    "surveyCard",
+    { width, height, sideOrientation: Mesh.DOUBLESIDE },
+    scene
+  );
+  plane.renderingGroupId = 1;
 
   const texture = new DynamicTexture(
     "surveyTex",
@@ -216,26 +188,6 @@ function makeCardTexture(
   lines.forEach((l, i) => ctx.fillText(l, w / 2, top + i * lineHeight));
 
   texture.update();
-  return texture;
-}
-
-function makeTextPlane(
-  text: string,
-  width: number,
-  height: number,
-  fontScale: number,
-  background = "rgba(10,20,40,0.88)"
-): Mesh {
-  const { scene } = deps!;
-
-  const plane = MeshBuilder.CreatePlane(
-    "surveyCard",
-    { width, height, sideOrientation: Mesh.DOUBLESIDE },
-    scene
-  );
-  plane.renderingGroupId = 1;
-
-  const texture = makeCardTexture(text, width, height, fontScale, background);
 
   const material = new StandardMaterial("surveyMat", scene);
   material.diffuseTexture = texture;
@@ -292,11 +244,16 @@ function showQuestion(i: number) {
   const buttonWidth = (PANEL.width - gap * (count - 1)) / count;
 
   question.options.forEach((option, n) => {
-    const button = makeTextPlane(option, buttonWidth, 0.34, 0.45, BUTTON_IDLE);
+    const button = makeTextPlane(
+      option,
+      buttonWidth,
+      0.34,
+      0.45,
+      "rgba(20,90,86,0.92)"
+    );
     button.isPickable = true;
     button.name = `surveyOption:${option}`;
     place(button, -PANEL.width / 2 + buttonWidth / 2 + n * (buttonWidth + gap), 0);
-    optionButtons.push({ mesh: button, option, width: buttonWidth });
   });
 
   // A bare row of numbers means nothing without its ends explained.
@@ -354,16 +311,11 @@ export function handleSurveyPick(mesh: any): boolean {
   surveyResults[phase].push(value);
   index += 1;
 
-  // Light up the choice and freeze the panel, so the tap is visibly confirmed
-  // before the question changes.
-  const chosen = optionButtons.find((b) => b.option === value);
-  if (chosen) repaintButton(chosen, BUTTON_CHOSEN);
-  optionButtons.forEach((b) => (b.mesh.isPickable = false));
-
   if (index < questions.length) {
-    setTimeout(() => showQuestion(index), 650);
+    // Brief pause so the tap does not clip the previous line.
+    setTimeout(() => showQuestion(index), 400);
   } else {
-    setTimeout(() => finish(), 650);
+    finish();
   }
 
   return true;
@@ -379,7 +331,7 @@ function finish() {
     const callback = onComplete;
     onComplete = null;
     // Let the line land before the scene changes.
-    setTimeout(() => callback?.(), 1200);
+    setTimeout(() => callback?.(), 600);
     return;
   }
 

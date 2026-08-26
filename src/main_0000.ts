@@ -45,7 +45,6 @@ import { ConvaiClient } from "@convai/web-sdk";
 import * as ConvaiSDK from "@convai/web-sdk";
 import {
   handleSurveyPick,
-  highlightSurveyHover,
   initSurvey,
   isSurveyActive,
   startSurvey,
@@ -858,7 +857,6 @@ scene.onPointerObservable.add((info) => {
     markers.forEach((m) => {
       m.material.emissiveColor = m.ball === picked ? HOVER_COLOR : IDLE_COLOR;
     });
-    highlightSurveyHover(picked);
     return;
   }
 
@@ -1098,25 +1096,6 @@ window.addEventListener("keydown", (e) => {
           if (component.changes.pressed?.current) recentre();
         });
 
-        // Squeeze plays the cheque demo. Manual rather than automatic: you
-        // press it at the right moment, which is more dependable in a demo
-        // than string-matching what she happens to say.
-        const grip = motionController.getComponent("xr-standard-squeeze");
-        grip?.onButtonStateChangedObservable.add((component) => {
-          if (component.changes.pressed?.current) {
-            videoPlane ? hideVideo() : showVideo("cheque");
-          }
-        });
-
-        // Both squeezes are the same component name, so use the thumbstick
-        // press for the longer app walkthrough instead.
-        const stickPress = motionController.getComponent("xr-standard-thumbstick");
-        stickPress?.onButtonStateChangedObservable.add((component) => {
-          if (component.changes.pressed?.current) {
-            videoPlane ? hideVideo() : showVideo("app");
-          }
-        });
-
         // Thumbstick left/right — nudge the world in 15 degree steps.
         const stick = motionController.getComponent("xr-standard-thumbstick");
         let armed = true;
@@ -1341,35 +1320,20 @@ scene.onBeforeRenderObservable.add(() => {
 // A phone-shaped screen she can show you. Plays an MP4 on a plane — this works
 // in an immersive session, unlike an iframe or a YouTube embed.
 
-const VIDEOS: Record<string, string> = {
-  cheque: "/video/cheque-deposit.mp4",
-  app: "/video/mobile-app.mp4",
-};
-
 const VIDEO_PANEL = {
-  yaw: 0,        // straight ahead while the film is playing
-  pitch: -2,
+  file: "/video/cheque-deposit.mp4",
+  yaw: 25,          // direction it appears in, same convention as markers
+  pitch: -3,        // slightly below eye level
   distance: 2.2,
-  height: 1.6,
-  portrait: true,
+  height: 1.4,      // metres tall
+  portrait: true,   // true for a phone screen, false for landscape
 };
-
-// How dark the hub goes behind the screen. 0.82 leaves the avatar as a faint
-// silhouette; push toward 0.95 for a fully dark room.
-const VIDEO_DIM = 0.82;
 
 let videoPlane: Mesh | null = null;
 let videoTexture: any = null;
 
-function showVideo(which: keyof typeof VIDEOS = "cheque") {
-  if (videoPlane) hideVideo();
-
-  const file = VIDEOS[which];
-  if (!file) return;
-
-  // Dim the hub so the screen is the only thing lit — cinema rather than a
-  // television on the wall. Reuses the shell built for node transitions.
-  fadeMaterial.alpha = VIDEO_DIM;
+function showVideo() {
+  if (videoPlane) return;
 
   const aspect = VIDEO_PANEL.portrait ? 9 / 16 : 16 / 9;
 
@@ -1383,8 +1347,7 @@ function showVideo(which: keyof typeof VIDEOS = "cheque") {
     scene
   );
   videoPlane.parent = world;
-  // Group 3 draws after the dimming shell, so the film itself stays bright.
-  videoPlane.renderingGroupId = 3;
+  videoPlane.renderingGroupId = 1;
   videoPlane.isPickable = false;
 
   const yaw = (VIDEO_PANEL.yaw * Math.PI) / 180;
@@ -1399,8 +1362,8 @@ function showVideo(which: keyof typeof VIDEOS = "cheque") {
   videoPlane.rotation.y = yaw;
 
   videoTexture = new VideoTexture(
-    "demoVideo",
-    file,
+    "chequeVideo",
+    VIDEO_PANEL.file,
     scene,
     true,     // generate mipmaps
     false,    // invertY
@@ -1418,27 +1381,20 @@ function showVideo(which: keyof typeof VIDEOS = "cheque") {
   // Clear itself away when it finishes.
   videoTexture.video?.addEventListener("ended", () => hideVideo());
 
-  console.log("Playing video:", which);
-    // She will otherwise keep talking over the film — the knowledge base can
-  // ask her to pause but cannot enforce it.
-  convai?.audioControls?.muteAudio?.();
-  window.speechSynthesis?.cancel();
+  console.log("Video panel shown");
 }
 
 function hideVideo() {
   videoTexture?.video?.pause();
   videoTexture?.dispose();
   videoPlane?.dispose(false, true);
-  // Bring the hub back up.
-  fadeMaterial.alpha = 0;
   videoTexture = null;
   videoPlane = null;
-  convai?.audioControls?.unmuteAudio?.();
   console.log("Video panel hidden");
 }
 window.addEventListener("keydown", (e) => {
-  if (e.key === "v") videoPlane ? hideVideo() : showVideo("cheque");
-  if (e.key === "b") videoPlane ? hideVideo() : showVideo("app");
+  if (e.key !== "v") return;
+  videoPlane ? hideVideo() : showVideo();
 });
 
 // Testing shortcuts: 1 runs the baseline survey, 2 runs the closing one.
@@ -1446,66 +1402,4 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "1") startSurvey("pre");
   if (e.key === "2") startSurvey("post");
-});
-
-// --- Video cues ------------------------------------------------------------
-// She says a fixed line from the knowledge base; that line plays the film.
-// More dependable than guessing intent, since the wording is ours.
-
-const VIDEO_CUES: { phrase: string; video: keyof typeof VIDEOS }[] = [
-  { phrase: "how to deposit a cheque", video: "cheque" },
-  { phrase: "around the mobile banking app", video: "app" },
-];
-
-// --- Video cues ------------------------------------------------------------
-// Her lines arrive as "bot-llm-text" and stream in character by character, so
-// the array length changes before the content is complete. Re-checking every
-// bot message each time catches the cue once the sentence has finished.
-
-const seenCues = new Set<string>();
-let lastCueCheck = 0;
-
-scene.onBeforeRenderObservable.add(() => {
-  if (!convai) return;
-
-  // Twice a second is plenty and avoids scanning on every frame.
-  const now = performance.now();
-  if (now - lastCueCheck < 500) return;
-  lastCueCheck = now;
-
-  const messages = convai.chatMessages ?? [];
-
-  for (const message of messages) {
-    const type = String((message as any)?.type ?? "");
-
-    // Only her side. Your own speech would otherwise fire the video.
-    if (!type.includes("bot")) continue;
-
-    const id = String((message as any)?.id ?? "");
-    if (seenCues.has(id)) continue;
-
-    const text = String((message as any)?.content ?? "").toLowerCase();
-    if (!text) continue;
-
-    const cue = VIDEO_CUES.find((c) => text.includes(c.phrase));
-    if (!cue) continue;
-
-    seenCues.add(id);
-    console.log("Cue matched:", cue.phrase, "->", cue.video);
-
-    // Let her finish the sentence before the screen appears.
-        // Wait for her to actually stop rather than guessing at a delay. She may
-    // still be mid-sentence when the cue text arrives.
-    const waitForSilence = () => {
-      const stillTalking = convai?.blendshapeQueue?.isBotSpeaking?.() ?? false;
-      if (stillTalking) {
-        setTimeout(waitForSilence, 300);
-        return;
-      }
-      // Short beat after the last word, so it doesn't feel abrupt.
-      setTimeout(() => showVideo(cue.video), 600);
-    };
-
-    setTimeout(waitForSilence, 800);
-  }
 });
