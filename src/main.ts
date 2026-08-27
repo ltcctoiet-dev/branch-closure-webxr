@@ -81,9 +81,9 @@ const NODES: NodeConfig[] = [
     image: "/panoramas/node1.jpg",
     rotation: 0,
     hotspots: [
-      { target: "meeting", yaw: 51, pitch: -5, label: "Private room" },
-      { target: "intro", yaw: 210, pitch: -5, label: "Back to the street" },
-      { target: "branch", yaw: 13, pitch: -18, label: "The counter" },
+      { target: "meeting", yaw: 51, pitch: -4, label: "Private room" },
+      { target: "intro", yaw: 192, pitch: -5, label: "Back to the street" },
+      { target: "branch", yaw: 345, pitch: -19, label: "The counter" },
     ],
   },
   {
@@ -117,7 +117,7 @@ const PANELS: PanelConfig[] = [
     image: "/images/entrance.jpg",
     label: "Enter the Banking Hub",
     target: "entry",
-    width: 6,
+    width: 10,
     distance: 7,
     yaw: 0,
   },
@@ -126,7 +126,7 @@ const PANELS: PanelConfig[] = [
     image: "/images/branch.jpg",
     label: "Back to the hub",
     target: "entry",
-    width: 6,
+    width: 10,
     distance: 7,
     yaw: 0,
   },
@@ -149,7 +149,7 @@ const FIELD_OF_VIEW_DEGREES = 75;
 const HOTSPOT_RADIUS = 6;
 
 // Marker ball size. Bigger is easier to hit with a controller ray.
-const MARKER_RADIUS = 0.3;
+const MARKER_RADIUS = 0.2;
 
 const FADE_MS = 350;
 
@@ -393,7 +393,7 @@ function positionMarkers() {
     const z = horizontal * Math.cos(yaw);
 
     m.ball.position.set(x, y, z);
-    m.labelPlane.position.set(x, y + 0.9, z);
+    m.labelPlane.position.set(x, y + 0.0, z);
   });
 }
 
@@ -981,7 +981,9 @@ overlay.style.cssText = [
   "font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
   "pointer-events:none",
 ].join(";");
-document.body.appendChild(overlay);
+// Dev overlay: on for tuning, off for demos.
+const SHOW_OVERLAY = false;
+if (SHOW_OVERLAY) document.body.appendChild(overlay);
 
 function drawOverlay(status: string) {
   const effective = Math.round(
