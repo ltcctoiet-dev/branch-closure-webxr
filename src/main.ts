@@ -50,6 +50,13 @@ import {
   isSurveyActive,
   startSurvey,
 } from "./survey";
+import {
+  hideServiceBoard,
+  initBoard,
+  isBoardVisible,
+  showServiceBoard,
+} from "./board";
+import { hideMap, initMap, isMapVisible, showMap } from "./map";
 
 
 // ---------------------------------------------------------------------------
@@ -83,7 +90,7 @@ const NODES: NodeConfig[] = [
     hotspots: [
       { target: "meeting", yaw: 51, pitch: -4, label: "Private room" },
       { target: "intro", yaw: 192, pitch: -5, label: "Back to the street" },
-      { target: "branch", yaw: 345, pitch: -19, label: "The counter" },
+      { target: "branch", yaw: 345, pitch: -4, label: "The counter" },
     ],
   },
   {
@@ -140,7 +147,11 @@ const findPanel = (id: string | undefined | null) =>
 
 // Diameter of the sphere in metres. Controls how large the room FEELS in
 // stereo. Keep this identical across nodes or the hub appears to resize.
-const DOME_SIZE = 20;
+const DOME_SIZE = 16;
+// Vertical nudge on the panorama, in metres. Positive lowers the floor,
+// negative raises it. The image was shot at some camera height that may not
+// match yours.
+const DOME_HEIGHT_OFFSET = 0;
 
 // Desktop field of view in degrees. The headset sets its own.
 const FIELD_OF_VIEW_DEGREES = 75;
@@ -167,7 +178,7 @@ const AVATAR = {
   file: "actor.glb",
   yaw: 35,
   distance: 1.5,
-  eyeHeight: 2.0,
+  eyeHeight: 2,
   scale: 1,
   faceOffset: 180,
 };
@@ -190,6 +201,12 @@ const engine = new Engine(canvas, true, {
 
 const scene = new Scene(engine);
 scene.clearColor = new Color4(0, 0, 0, 1);
+// Babylon applies a tone curve by default, which pulls midtones down. These
+// panels are photographs and should render as they were captured.
+scene.imageProcessingConfiguration.applyByPostProcess = false;
+scene.imageProcessingConfiguration.toneMappingEnabled = false;
+scene.imageProcessingConfiguration.contrast = 1.0;
+scene.imageProcessingConfiguration.exposure = 1.0;
 
 const camera = new FreeCamera("camera", Vector3.Zero(), scene);
 camera.attachControl(canvas, true);
@@ -210,6 +227,8 @@ const world = new TransformNode("world", scene);
 
 // The survey panels hang off the head rig and use the same voice as the avatar.
 initSurvey({ scene, world, speak });
+initBoard({ scene, world });
+initMap({ scene, world });
 world.parent = rig;
 
 // useDirectMapping keeps the equirectangular image on the sphere as-is.
@@ -221,6 +240,7 @@ const dome = new PhotoDome(
   scene
 );
 dome.mesh.parent = world;
+dome.mesh.position.y = DOME_HEIGHT_OFFSET;
 dome.mesh.renderingGroupId = 0;
 dome.mesh.isPickable = false;
 
@@ -354,8 +374,8 @@ function buildMarkers(node: NodeConfig) {
     labelPlane.renderingGroupId = 1;
     labelPlane.isPickable = false;
     labelPlane.parent = world;
-    labelPlane.billboardMode = Mesh.BILLBOARDMODE_ALL;
-    labelPlane.preserveParentRotationForBillboard = true;
+    labelPlane.billboardMode = Mesh.BILLBOARDMODE_NONE;
+  
 
     const labelTexture = makeLabelTexture(spot.label);
     const labelMaterial = new StandardMaterial("labelMat", scene);
@@ -393,7 +413,10 @@ function positionMarkers() {
     const z = horizontal * Math.cos(yaw);
 
     m.ball.position.set(x, y, z);
-    m.labelPlane.position.set(x, y + 0.0, z);
+    m.labelPlane.position.set(x, y, z);
+    m.labelPlane.rotation.y = (m.yaw * Math.PI) / 180;
+    m.labelPlane.rotation.x = 0;
+    m.labelPlane.rotation.z = 0;
   });
 }
 
@@ -506,8 +529,9 @@ function buildIntro() {
   introLabel.renderingGroupId = 1;
   introLabel.isPickable = false;
   introLabel.parent = world;
-  introLabel.billboardMode = Mesh.BILLBOARDMODE_ALL;
-  introLabel.preserveParentRotationForBillboard = true;
+  // Fixed rather than following your head — billboarding makes it swing and
+  // skew as you look around, same as the marker labels.
+  introLabel.billboardMode = Mesh.BILLBOARDMODE_NONE;
 
   const labelTexture = makeLabelTexture(INTRO.label);
   const labelMaterial = new StandardMaterial("introLabelMat", scene);
@@ -653,6 +677,32 @@ const GREETING =
 
 let speaking = false;
 
+// The voice list loads asynchronously, so the first call to speak() often
+// finds it empty and falls back to the system default. Resolve it once and
+// hold onto it.
+let cachedVoice: SpeechSynthesisVoice | null = null;
+
+function pickVoice(): SpeechSynthesisVoice | null {
+  if (cachedVoice) return cachedVoice;
+
+  const voices = window.speechSynthesis?.getVoices() ?? [];
+  if (!voices.length) return null;
+
+  cachedVoice =
+    voices.find(
+      (v) => v.lang === "en-GB" && /female|woman|Sonia|Libby|Hazel/i.test(v.name)
+    ) ??
+    voices.find((v) => v.lang === "en-GB") ??
+    voices.find((v) => v.lang.startsWith("en")) ??
+    null;
+
+  return cachedVoice;
+}
+
+// Warm it up as soon as the list arrives, so the first question already has it.
+window.speechSynthesis?.addEventListener?.("voiceschanged", () => pickVoice());
+pickVoice();
+
 function speak(text: string) {
   if (!("speechSynthesis" in window)) {
     console.warn("This browser has no speech synthesis.");
@@ -667,13 +717,8 @@ function speak(text: string) {
   utterance.volume = 1.0;
 
   // Prefer a British English voice if one is installed.
-  const voices = window.speechSynthesis.getVoices();
-  const preferred =
-    voices.find((v) => v.lang === "en-GB" && /female|woman|Sonia|Libby/i.test(v.name)) ??
-    voices.find((v) => v.lang === "en-GB") ??
-    voices.find((v) => v.lang.startsWith("en"));
-
-  if (preferred) utterance.voice = preferred;
+  const chosen = pickVoice();
+  if (chosen) utterance.voice = chosen;
 
   utterance.onstart = () => (speaking = true);
   utterance.onend = () => (speaking = false);
@@ -1287,6 +1332,21 @@ async function startConversation() {
 
 let loggedFrame = false;
 
+// Drops every mouth and jaw value, leaving eyes, brows, cheeks and nose.
+function stripMouth(values: Record<string, number>): Record<string, number> {
+  const kept: Record<string, number> = {};
+
+  for (const [name, value] of Object.entries(values)) {
+    const lower = name.toLowerCase();
+    if (lower.startsWith("mouth")) continue;
+    if (lower.startsWith("jaw")) continue;
+    if (lower.startsWith("tongue")) continue;
+    kept[name] = value;
+  }
+
+  return kept;
+}
+
 scene.onBeforeRenderObservable.add(() => {
   if (!convai || !blendshapes.size) return;
 
@@ -1331,12 +1391,14 @@ scene.onBeforeRenderObservable.add(() => {
     console.log("Blendshape keys sample:", [...blendshapes.keys()].slice(0, 10));
   }
 
-     if (frame instanceof Float32Array || Array.isArray(frame)) {
-    // Order61 array → { jawOpen: 0.4, ... }
+    // Eyes and brows only. The mouth stays neutral — the lipsync on this rig
+  // does not track the speech well enough to be worth it, but a completely
+  // still face reads as lifeless.
+  if (frame instanceof Float32Array || Array.isArray(frame)) {
     const named = (ConvaiSDK as any).mapOrder61ToNames?.(frame);
-    if (named) applyBlendshapes(named);
-  } else {
-    applyBlendshapes(frame);
+    if (named) applyBlendshapes(stripMouth(named));
+  } else if (frame) {
+    applyBlendshapes(stripMouth(frame as Record<string, number>));
   }
 });
 // --- Video panel -----------------------------------------------------------
@@ -1489,6 +1551,32 @@ scene.onBeforeRenderObservable.add(() => {
     const text = String((message as any)?.content ?? "").toLowerCase();
     if (!text) continue;
 
+    // The service board has its own cue, separate from the films.
+    if (!seenCues.has("board") && text.includes("full list of services")) {
+      seenCues.add("board");
+      setTimeout(() => showServiceBoard(), 1000);
+    }
+    if (!seenCues.has("map") && text.includes("show you where it is")) {
+      seenCues.add("map");
+      // The board is usually still up; clear it so they do not overlap.
+      hideServiceBoard();
+      setTimeout(() => showMap(), 1000);
+    }
+
+        // The board and the map have their own cue lines, separate from the films.
+    // Both sit at yaw 0, so each clears the other before appearing.
+    if (!seenCues.has("board") && text.includes("full list of services")) {
+      seenCues.add("board");
+      hideMap();
+      setTimeout(() => showServiceBoard(), 1000);
+    }
+
+    if (!seenCues.has("map") && text.includes("show you where it is")) {
+      seenCues.add("map");
+      hideServiceBoard();
+      setTimeout(() => showMap(), 1000);
+    }
+
     const cue = VIDEO_CUES.find((c) => text.includes(c.phrase));
     if (!cue) continue;
 
@@ -1510,4 +1598,53 @@ scene.onBeforeRenderObservable.add(() => {
 
     setTimeout(waitForSilence, 800);
   }
+});
+// --- Mouth movement --------------------------------------------------------
+// Not lipsync — just a mouth that moves while she is speaking. Convai's frames
+// did not track the speech closely enough on this rig, and an approximation
+// that is roughly in time reads better than one that is precisely wrong.
+
+const MOUTH_SPEED = 6;   // cycles per second — higher is more animated
+const MOUTH_OPEN = 0.7;   // how far the jaw drops at peak
+const MOUTH_MIN = 0.08;    // slight parting even at the bottom of a cycle
+
+let mouthPhase = 0;
+let mouthOpenNow = 0;
+
+scene.onBeforeRenderObservable.add(() => {
+  if (!blendshapes.size) return;
+
+  const talking = convaiSpeaking || speaking;
+  const delta = engine.getDeltaTime() / 1000;
+
+  if (talking) {
+    mouthPhase += delta * MOUTH_SPEED;
+
+    // Two waves at different rates so it does not look metronomic.
+    const wave =
+      Math.abs(Math.sin(mouthPhase)) * 0.7 +
+      Math.abs(Math.sin(mouthPhase * 0.43)) * 0.3;
+
+    const target = MOUTH_MIN + wave * MOUTH_OPEN;
+    // Ease toward the target so the jaw does not snap.
+    mouthOpenNow += (target - mouthOpenNow) * Math.min(1, delta * 14);
+  } else {
+    mouthOpenNow += (0 - mouthOpenNow) * Math.min(1, delta * 10);
+    if (mouthOpenNow < 0.005) mouthOpenNow = 0;
+  }
+
+  applyBlendshapes({
+    jawOpen: mouthOpenNow,
+    // The lower lip has to follow the jaw or the mouth never really opens.
+    mouthLowerDownLeft: mouthOpenNow * 0.8,
+    mouthLowerDownRight: mouthOpenNow * 0.8,
+    mouthUpperUpLeft: mouthOpenNow * 0.3,
+    mouthUpperUpRight: mouthOpenNow * 0.3,
+  });
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "s") isBoardVisible() ? hideServiceBoard() : showServiceBoard();
+});
+window.addEventListener("keydown", (e) => {
+  if (e.key === "m") isMapVisible() ? hideMap() : showMap();
 });

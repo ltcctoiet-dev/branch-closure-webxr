@@ -23,6 +23,8 @@
  * paste it into the node's `rotation` below.
  */
 
+
+
 import {
   Color3,
   Color4,
@@ -41,6 +43,7 @@ import {
   Vector3,
   WebXRDefaultExperience,
 } from "@babylonjs/core";
+
 
 // ---------------------------------------------------------------------------
 // NODES — the only part you edit as you add panoramas.
