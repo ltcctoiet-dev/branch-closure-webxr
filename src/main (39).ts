@@ -61,6 +61,7 @@ import {
   handleChequePick,
   hideCheque,
   initCheque,
+  updateCheque,
   isChequeVisible,
   startCheque,
 } from "./cheque";
@@ -235,7 +236,17 @@ const world = new TransformNode("world", scene);
 // The survey panels hang off the head rig and use the same voice as the avatar.
 initSurvey({ scene, world, speak });
 initBoard({ scene, world });
-initCheque({ scene, world, speak });
+initCheque({
+  scene,
+  world,
+  speak,
+  // Only used when NARRATION is "convai" in cheque.ts.
+  tellConvai: (text: string) =>
+    (convai as any)?.sendUserTextMessage?.(`Say this to the customer: ${text}`),
+});
+
+// Drives the caption typing.
+scene.onBeforeRenderObservable.add(() => updateCheque(engine.getDeltaTime()));
 initMap({ scene, world });
 world.parent = rig;
 
@@ -1580,20 +1591,14 @@ scene.onBeforeRenderObservable.add(() => {
       boardShownAt = performance.now();
       setTimeout(() => showServiceBoard(), BOARD_DELAY_MS);
 
-      // She has been told to stop after the services line, so something has to
-      // start her again. sendTriggerMessage needs a Narrative Design section
-      // set up in the dashboard and does nothing silently without one, so a
-      // text message is used instead — it is the same call that opens the
-      // conversation and is known to work here.
+      // She has been told to stop after the services line, so something has
+      // to start her again. Five seconds after the board lands, prompt her
+      // to ask about the location.
       setTimeout(() => {
-        const c = convai as any;
-        if (!c) {
-          console.warn("Board prompt skipped — no Convai client.");
-          return;
-        }
-
-        console.log("Prompting her to continue after the board.");
-        c.sendUserTextMessage?.("Go on.");
+        (convai as any)?.sendTriggerMessage?.(
+          "Now ask whether they would like to know where the Banking Hub is " +
+            "located and whether to show them a map."
+        );
       }, BOARD_DELAY_MS + BOARD_PROMPT_MS);
     }
 

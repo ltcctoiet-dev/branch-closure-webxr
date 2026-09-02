@@ -1,6 +1,10 @@
 /**
- * Location map — shown when the avatar tells the customer where the Banking
- * Hub is. A single image on a panel, with a caption beneath it.
+ * Location map — an animated route to the Banking Hub, shown when the avatar
+ * tells the customer where it is.
+ *
+ * Plays a video rather than showing a still: a route drawing itself is easier
+ * to follow than a printed map, particularly for someone who is anxious and
+ * only sees it once.
  */
 
 import {
@@ -9,19 +13,20 @@ import {
   MeshBuilder,
   Scene,
   StandardMaterial,
-  Texture,
   TransformNode,
+  VideoTexture,
 } from "@babylonjs/core";
 
 const MAP = {
-  image: "/images/hub-map.png",
+  video: "/video/hub-map.mp4",
   caption: "Banking Hub · SS4 1AJ · 1.4 miles · bus route 7",
   yaw: 0,        // straight ahead
   pitch: 0,
   distance: 2.8,
-  width: 2.2,
-  aspect: 3 / 4, // height as a fraction of width; 3/4 suits a landscape map
-  holdMs: 10000,
+  width: 3.2,
+  aspect: 9 / 16, // height as a fraction of width; 9/16 suits landscape video
+  loop: false,    // true if the animation should keep repeating
+  holdMs: 25000,  // fallback if the video never reports that it ended
 };
 
 type MapDeps = {
@@ -36,6 +41,7 @@ export function initMap(dependencies: MapDeps) {
 }
 
 let meshes: Mesh[] = [];
+let videoTexture: VideoTexture | null = null;
 let hideTimer = 0;
 
 export const isMapVisible = () => meshes.length > 0;
@@ -63,6 +69,9 @@ function place(mesh: Mesh, offsetY: number) {
 
 export function hideMap() {
   clearTimeout(hideTimer);
+  videoTexture?.video?.pause();
+  videoTexture?.dispose();
+  videoTexture = null;
   meshes.forEach((m) => m.dispose(false, true));
   meshes = [];
 }
@@ -86,23 +95,32 @@ export function showMap() {
   panel.renderingGroupId = 2;
   panel.isPickable = false;
 
-  const texture = new Texture(MAP.image, scene);
+  videoTexture = new VideoTexture(
+    "mapVideo",
+    MAP.video,
+    scene,
+    true,   // generate mipmaps
+    false,  // invertY
+    VideoTexture.TRILINEAR_SAMPLINGMODE,
+    { autoPlay: true, loop: MAP.loop, muted: true }
+  );
 
   const material = new StandardMaterial("mapMat", scene);
-  material.diffuseTexture = texture;
-  material.emissiveTexture = texture;
+  material.diffuseTexture = videoTexture;
+  material.emissiveTexture = videoTexture;
   material.disableLighting = true;
   material.backFaceCulling = false;
-  // Maps are usually printed light; lift it so it reads in a dim room.
-  material.emissiveColor.set(1.25, 1.25, 1.25);
+  // Maps are usually drawn light; lift it so it reads in a dim room.
+  material.emissiveColor.set(1.2, 1.2, 1.2);
   panel.material = material;
 
   place(panel, 0);
 
-  // Caption strip beneath.
+  // Caption strip beneath, so the postcode stays readable after the animation
+  // has finished drawing.
   const caption = MeshBuilder.CreatePlane(
     "mapCaption",
-    { width: MAP.width, height: 0.3, sideOrientation: Mesh.DOUBLESIDE },
+    { width: MAP.width, height: 0.26, sideOrientation: Mesh.DOUBLESIDE },
     scene
   );
   caption.renderingGroupId = 2;
@@ -110,19 +128,19 @@ export function showMap() {
 
   const capTex = new DynamicTexture(
     "mapCapTex",
-    { width: 1024, height: 102 },
+    { width: 1024, height: 121 },
     scene,
     true
   );
   const ctx = capTex.getContext() as CanvasRenderingContext2D;
-  ctx.clearRect(0, 0, 1024, 102);
+  ctx.clearRect(0, 0, 1024, 121);
   ctx.fillStyle = "rgba(8,58,54,0.95)";
-  ctx.fillRect(0, 0, 1024, 102);
+  ctx.fillRect(0, 0, 1024, 121);
   ctx.font = "bold 44px system-ui, sans-serif";
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(MAP.caption, 512, 51);
+  ctx.fillText(MAP.caption, 512, 60);
   capTex.update();
 
   const capMat = new StandardMaterial("mapCapMat", scene);
@@ -133,8 +151,13 @@ export function showMap() {
   capMat.backFaceCulling = false;
   caption.material = capMat;
 
-  place(caption, -height / 2 - 0.22);
+  place(caption, -height / 2 - 0.2);
 
+  // Clear itself when the animation finishes, or after the fallback if the
+  // video never fires "ended" — a looping video never does.
+  if (!MAP.loop) {
+    videoTexture.video?.addEventListener("ended", () => hideMap());
+  }
   hideTimer = window.setTimeout(() => hideMap(), MAP.holdMs);
 
   console.log("Map shown");

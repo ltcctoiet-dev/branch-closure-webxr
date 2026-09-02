@@ -1527,16 +1527,7 @@ const VIDEO_CUES: { phrase: string; video: keyof typeof VIDEOS }[] = [];
 
 const seenCues = new Set<string>();
 // How long the service board stays up before the map replaces it.
-// Her whole reply arrives as text long before she has spoken any of it, so
-// both screens are delayed to land roughly where she reaches each cue line.
-// These are stopwatch estimates of her pacing and will need adjusting if the
-// script or the voice changes.
-const BOARD_DELAY_MS = 25000;   // after her text arrives, show the board
-const BOARD_TIME_MS = 55000;    // after her text arrives, swap to the map
-// The board reveals six rows at 900ms each, then holds for 10s. She is
-// prompted once it has cleared, so the question follows the board rather than
-// competing with it.
-const BOARD_PROMPT_MS = 16000;  // after the board lands, nudge her onward
+const BOARD_TIME_MS = 26000;
 let boardShownAt = 0;
 let lastCueCheck = 0;
 
@@ -1566,7 +1557,7 @@ scene.onBeforeRenderObservable.add(() => {
       seenCues.add("cheque");
       hideServiceBoard();
       hideMap();
-      setTimeout(() => startCheque(), 4000);
+      setTimeout(() => startCheque(), 1200);
     }
 
     // Her reply streams in, so the two cue phrases usually arrive on separate
@@ -1578,23 +1569,7 @@ scene.onBeforeRenderObservable.add(() => {
       // Stamped now rather than inside the timeout: her reply streams in, and
       // the map cue often lands before the board has actually appeared.
       boardShownAt = performance.now();
-      setTimeout(() => showServiceBoard(), BOARD_DELAY_MS);
-
-      // She has been told to stop after the services line, so something has to
-      // start her again. sendTriggerMessage needs a Narrative Design section
-      // set up in the dashboard and does nothing silently without one, so a
-      // text message is used instead — it is the same call that opens the
-      // conversation and is known to work here.
-      setTimeout(() => {
-        const c = convai as any;
-        if (!c) {
-          console.warn("Board prompt skipped — no Convai client.");
-          return;
-        }
-
-        console.log("Prompting her to continue after the board.");
-        c.sendUserTextMessage?.("Go on.");
-      }, BOARD_DELAY_MS + BOARD_PROMPT_MS);
+      setTimeout(() => showServiceBoard(), 800);
     }
 
     if (!seenCues.has("map") && text.includes("show you where it is")) {
@@ -1612,22 +1587,26 @@ scene.onBeforeRenderObservable.add(() => {
       }, wait);
     }
 
+        if (!seenCues.has("map") && text.includes("show you where it is")) {
+      ...
+    }
+
     if (!seenCues.has("post") && text.includes("a few short questions")) {
       seenCues.add("post");
       hideServiceBoard();
       hideMap();
       // Let her finish asking before the questions appear.
-      setTimeout(() => startSurvey("post"), 15000);
+      setTimeout(() => startSurvey("post"), 3500);
     }
-
     const cue = VIDEO_CUES.find((c) => text.includes(c.phrase));
     if (!cue) continue;
 
     seenCues.add(id);
     console.log("Cue matched:", cue.phrase, "->", cue.video);
 
-    // Wait for her to actually stop rather than guessing at a delay — she is
-    // usually still mid-sentence when the cue text arrives.
+    // Let her finish the sentence before the screen appears.
+        // Wait for her to actually stop rather than guessing at a delay. She may
+    // still be mid-sentence when the cue text arrives.
     const waitForSilence = () => {
       const stillTalking = convai?.blendshapeQueue?.isBotSpeaking?.() ?? false;
       if (stillTalking) {

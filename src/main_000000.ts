@@ -1170,6 +1170,15 @@ window.addEventListener("keydown", (e) => {
           }
         });
 
+        // Both squeezes are the same component name, so use the thumbstick
+        // press for the longer app walkthrough instead.
+        const stickPress = motionController.getComponent("xr-standard-thumbstick");
+        stickPress?.onButtonStateChangedObservable.add((component) => {
+          if (component.changes.pressed?.current) {
+            videoPlane ? hideVideo() : showVideo("app");
+          }
+        });
+
         // Thumbstick left/right — nudge the world in 15 degree steps.
         const stick = motionController.getComponent("xr-standard-thumbstick");
         let armed = true;
@@ -1413,6 +1422,7 @@ scene.onBeforeRenderObservable.add(() => {
 
 const VIDEOS: Record<string, string> = {
   cheque: "/video/cheque-deposit.mp4",
+  app: "/video/mobile-app.mp4",
 };
 
 const VIDEO_PANEL = {
@@ -1488,6 +1498,10 @@ function showVideo(which: keyof typeof VIDEOS = "cheque") {
   videoTexture.video?.addEventListener("ended", () => hideVideo());
 
   console.log("Playing video:", which);
+    // She will otherwise keep talking over the film — the knowledge base can
+  // ask her to pause but cannot enforce it.
+  convai?.audioControls?.muteAudio?.();
+  window.speechSynthesis?.cancel();
 }
 
 function hideVideo() {
@@ -1498,10 +1512,12 @@ function hideVideo() {
   fadeMaterial.alpha = 0;
   videoTexture = null;
   videoPlane = null;
+  convai?.audioControls?.unmuteAudio?.();
   console.log("Video panel hidden");
 }
 window.addEventListener("keydown", (e) => {
   if (e.key === "v") videoPlane ? hideVideo() : showVideo("cheque");
+  if (e.key === "b") videoPlane ? hideVideo() : showVideo("app");
 });
 
 // Testing shortcuts: 1 runs the baseline survey, 2 runs the closing one.
@@ -1515,10 +1531,9 @@ window.addEventListener("keydown", (e) => {
 // She says a fixed line from the knowledge base; that line plays the film.
 // More dependable than guessing intent, since the wording is ours.
 
-// Empty: the cheque walkthrough is tap-through rather than a film, and the
-// app tour has been removed. Films can still be played by hand with the keys
-// and controller bindings below.
-const VIDEO_CUES: { phrase: string; video: keyof typeof VIDEOS }[] = [];
+const VIDEO_CUES: { phrase: string; video: keyof typeof VIDEOS }[] = [
+  { phrase: "around the mobile banking app", video: "app" },
+];
 
 // --- Video cues ------------------------------------------------------------
 // Her lines arrive as "bot-llm-text" and stream in character by character, so
@@ -1527,16 +1542,7 @@ const VIDEO_CUES: { phrase: string; video: keyof typeof VIDEOS }[] = [];
 
 const seenCues = new Set<string>();
 // How long the service board stays up before the map replaces it.
-// Her whole reply arrives as text long before she has spoken any of it, so
-// both screens are delayed to land roughly where she reaches each cue line.
-// These are stopwatch estimates of her pacing and will need adjusting if the
-// script or the voice changes.
-const BOARD_DELAY_MS = 25000;   // after her text arrives, show the board
-const BOARD_TIME_MS = 55000;    // after her text arrives, swap to the map
-// The board reveals six rows at 900ms each, then holds for 10s. She is
-// prompted once it has cleared, so the question follows the board rather than
-// competing with it.
-const BOARD_PROMPT_MS = 16000;  // after the board lands, nudge her onward
+const BOARD_TIME_MS = 26000;
 let boardShownAt = 0;
 let lastCueCheck = 0;
 
@@ -1562,72 +1568,57 @@ scene.onBeforeRenderObservable.add(() => {
     const text = String((message as any)?.content ?? "").toLowerCase();
     if (!text) continue;
 
-    if (!seenCues.has("cheque") && text.includes("how to deposit a cheque")) {
+    // The service board has its own cue, separate from the films.
+    if (!seenCues.has("board") && text.includes("full list of services")) {
+      seenCues.add("board");
+      setTimeout(() => showServiceBoard(), 1000);
+    }
+    if (!seenCues.has("map") && text.includes("show you where it is")) {
+      seenCues.add("map");
+      // The board is usually still up; clear it so they do not overlap.
+      hideServiceBoard();
+      setTimeout(() => showMap(), 1000);
+    }
+      if (!seenCues.has("cheque") && text.includes("how to deposit a cheque")) {
       seenCues.add("cheque");
       hideServiceBoard();
       hideMap();
-      setTimeout(() => startCheque(), 4000);
+      setTimeout(() => startCheque(), 1200);
     }
 
-    // Her reply streams in, so the two cue phrases usually arrive on separate
+      // Her reply streams in, so the two cue phrases usually arrive on separate
     // passes of this check. Timing the map against a flag set in the same pass
     // therefore fails — it is timed against when the board actually went up.
     if (!seenCues.has("board") && text.includes("full list of services")) {
       seenCues.add("board");
       hideMap();
-      // Stamped now rather than inside the timeout: her reply streams in, and
-      // the map cue often lands before the board has actually appeared.
-      boardShownAt = performance.now();
-      setTimeout(() => showServiceBoard(), BOARD_DELAY_MS);
-
-      // She has been told to stop after the services line, so something has to
-      // start her again. sendTriggerMessage needs a Narrative Design section
-      // set up in the dashboard and does nothing silently without one, so a
-      // text message is used instead — it is the same call that opens the
-      // conversation and is known to work here.
       setTimeout(() => {
-        const c = convai as any;
-        if (!c) {
-          console.warn("Board prompt skipped — no Convai client.");
-          return;
-        }
-
-        console.log("Prompting her to continue after the board.");
-        c.sendUserTextMessage?.("Go on.");
-      }, BOARD_DELAY_MS + BOARD_PROMPT_MS);
+        showServiceBoard();
+        boardShownAt = performance.now();
+      }, 800);
     }
 
     if (!seenCues.has("map") && text.includes("show you where it is")) {
       seenCues.add("map");
 
-      // Counted from when the board was requested, so it gets its full time
-      // on screen. With no board, the map can come straight up.
-      const wait = boardShownAt
-        ? Math.max(800, BOARD_TIME_MS - (performance.now() - boardShownAt))
-        : 800;
+      // Give the board its time on screen before replacing it.
+      const elapsed = boardShownAt ? performance.now() - boardShownAt : Infinity;
+      const wait = Math.max(800, BOARD_TIME_MS - elapsed);
 
       setTimeout(() => {
         hideServiceBoard();
         showMap();
       }, wait);
     }
-
-    if (!seenCues.has("post") && text.includes("a few short questions")) {
-      seenCues.add("post");
-      hideServiceBoard();
-      hideMap();
-      // Let her finish asking before the questions appear.
-      setTimeout(() => startSurvey("post"), 15000);
-    }
-
     const cue = VIDEO_CUES.find((c) => text.includes(c.phrase));
     if (!cue) continue;
 
     seenCues.add(id);
     console.log("Cue matched:", cue.phrase, "->", cue.video);
 
-    // Wait for her to actually stop rather than guessing at a delay — she is
-    // usually still mid-sentence when the cue text arrives.
+    // Let her finish the sentence before the screen appears.
+        // Wait for her to actually stop rather than guessing at a delay. She may
+    // still be mid-sentence when the cue text arrives.
     const waitForSilence = () => {
       const stillTalking = convai?.blendshapeQueue?.isBotSpeaking?.() ?? false;
       if (stillTalking) {
