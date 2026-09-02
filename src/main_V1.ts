@@ -61,7 +61,6 @@ import {
   handleChequePick,
   hideCheque,
   initCheque,
-  updateCheque,
   isChequeVisible,
   startCheque,
 } from "./cheque";
@@ -236,17 +235,7 @@ const world = new TransformNode("world", scene);
 // The survey panels hang off the head rig and use the same voice as the avatar.
 initSurvey({ scene, world, speak });
 initBoard({ scene, world });
-initCheque({
-  scene,
-  world,
-  speak,
-  // Only used when NARRATION is "convai" in cheque.ts.
-  tellConvai: (text: string) =>
-    (convai as any)?.sendUserTextMessage?.(`Say this to the customer: ${text}`),
-});
-
-// Drives the caption typing.
-scene.onBeforeRenderObservable.add(() => updateCheque(engine.getDeltaTime()));
+initCheque({ scene, world, speak });
 initMap({ scene, world });
 world.parent = rig;
 
@@ -1538,17 +1527,18 @@ const VIDEO_CUES: { phrase: string; video: keyof typeof VIDEOS }[] = [];
 
 const seenCues = new Set<string>();
 // How long the service board stays up before the map replaces it.
-// Her whole reply arrives as text long before she has spoken any of it, so
-// both screens are delayed to land roughly where she reaches each cue line.
-// These are stopwatch estimates of her pacing and will need adjusting if the
-// script or the voice changes.
-const BOARD_DELAY_MS = 25000;   // after her text arrives, show the board
-const BOARD_TIME_MS = 55000;    // after her text arrives, swap to the map
-// The board reveals six rows at 900ms each, then holds for 10s. She is
-// prompted once it has cleared, so the question follows the board rather than
-// competing with it.
-const BOARD_PROMPT_MS = 16000;  // after the board lands, nudge her onward
-let boardShownAt = 0;
+// Her reply arrives as text long before she has spoken any of it, so a screen
+// shown the moment a cue phrase appears would land minutes early. Each cue is
+// queued instead and shown when she actually stops talking — which, because
+// every cue line is the last thing she says in its turn, is exactly right.
+let boardQueued = false;
+let mapQueued = false;
+let wasBotSpeaking = false;
+
+// How long the board stays before she is nudged on to the location. Counted
+// from the board appearing, not from her text arriving.
+const BOARD_READ_MS = 15000;
+
 let lastCueCheck = 0;
 
 scene.onBeforeRenderObservable.add(() => {
@@ -1580,41 +1570,16 @@ scene.onBeforeRenderObservable.add(() => {
       setTimeout(() => startCheque(), 4000);
     }
 
-    // Her reply streams in, so the two cue phrases usually arrive on separate
-    // passes of this check. Timing the map against a flag set in the same pass
-    // therefore fails — it is timed against when the board actually went up.
+    // Queue only. The observer below shows it when she stops speaking.
     if (!seenCues.has("board") && text.includes("full list of services")) {
       seenCues.add("board");
-      hideMap();
-      // Stamped now rather than inside the timeout: her reply streams in, and
-      // the map cue often lands before the board has actually appeared.
-      boardShownAt = performance.now();
-      setTimeout(() => showServiceBoard(), BOARD_DELAY_MS);
-
-      // She has been told to stop after the services line, so something has
-      // to start her again. Five seconds after the board lands, prompt her
-      // to ask about the location.
-      setTimeout(() => {
-        (convai as any)?.sendTriggerMessage?.(
-          "Now ask whether they would like to know where the Banking Hub is " +
-            "located and whether to show them a map."
-        );
-      }, BOARD_DELAY_MS + BOARD_PROMPT_MS);
+      boardQueued = true;
     }
 
+    // Queue only, same as the board.
     if (!seenCues.has("map") && text.includes("show you where it is")) {
       seenCues.add("map");
-
-      // Counted from when the board was requested, so it gets its full time
-      // on screen. With no board, the map can come straight up.
-      const wait = boardShownAt
-        ? Math.max(800, BOARD_TIME_MS - (performance.now() - boardShownAt))
-        : 800;
-
-      setTimeout(() => {
-        hideServiceBoard();
-        showMap();
-      }, wait);
+      mapQueued = true;
     }
 
     if (!seenCues.has("post") && text.includes("a few short questions")) {
@@ -1644,6 +1609,49 @@ scene.onBeforeRenderObservable.add(() => {
     };
 
     setTimeout(waitForSilence, 800);
+  }
+});
+
+// Queued screens appear the moment she stops speaking. Every cue line is the
+// last thing she says in its turn, so this lands on the right beat without
+// guessing at how long her speech takes.
+scene.onBeforeRenderObservable.add(() => {
+  if (!convai) return;
+
+  const talking = convai.blendshapeQueue?.isBotSpeaking?.() ?? false;
+  if (talking === wasBotSpeaking) return;
+  wasBotSpeaking = talking;
+
+  // Only act on the moment she falls silent.
+  if (talking) return;
+
+  if (boardQueued) {
+    boardQueued = false;
+    hideMap();
+    showServiceBoard();
+    console.log("Board shown on her pause.");
+
+    // She has been told to stop after the services line, so something has to
+    // start her again. sendTriggerMessage needs a Narrative Design section in
+    // the dashboard and does nothing silently without one, so a text message
+    // is used — the same call that opens the conversation.
+    setTimeout(() => {
+      const c = convai as any;
+      if (!c) return;
+      console.log("Prompting her toward the map.");
+      c.sendUserTextMessage?.(
+        "Where is the Banking Hub, and can you show me on a map?"
+      );
+    }, BOARD_READ_MS);
+
+    return;
+  }
+
+  if (mapQueued) {
+    mapQueued = false;
+    hideServiceBoard();
+    showMap();
+    console.log("Map shown on her pause.");
   }
 });
 // --- Mouth movement --------------------------------------------------------

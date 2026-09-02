@@ -1576,16 +1576,10 @@ scene.onBeforeRenderObservable.add(() => {
       boardQueued = true;
     }
 
-    // Keyed off the postcode rather than "show you where it is". That phrase
-    // can appear in the previous turn — she sometimes previews it, or runs the
-    // two turns together — which fired the map far too early. The postcode
-    // exists only in the location turn, immediately after the cue line, so it
-    // lands at the right moment even if she merges turns.
-    //
-    // It also often arrives while she is already mid-sentence, so waiting for
-    // her to START speaking would miss the edge and hold the map until her
-    // next turn entirely.
-    if (!seenCues.has("map") && text.includes("ss4")) {
+    // The map cue sits at the start of her location turn, so it often arrives
+    // while she is already mid-sentence. Waiting for her to START speaking
+    // would then miss the edge entirely and hold the map until her next turn.
+    if (!seenCues.has("map") && text.includes("show you where it is")) {
       seenCues.add("map");
 
       const talkingNow = (convai as any)?.blendshapeQueue?.isBotSpeaking?.() ?? false;
