@@ -126,9 +126,15 @@ export function highlightSurveyHover(mesh: any) {
 // Drawing
 // ---------------------------------------------------------------------------
 
-const BUTTON_IDLE = "rgba(20,90,86,0.92)";
-const BUTTON_HOVER = "rgba(34,140,132,0.95)";
-const BUTTON_CHOSEN = "rgba(244,168,54,0.97)";
+// Frosted glass with navy type, matching the service board.
+const GLASS_TOP = "rgba(250,248,243,0.66)";
+const GLASS_BOTTOM = "rgba(238,240,245,0.56)";
+const EDGE = "rgba(255,255,255,0.9)";
+const NAVY = "#123a6d";
+
+const BUTTON_IDLE = "rgba(180,204,232,0.5)";
+const BUTTON_HOVER = "rgba(146,182,224,0.72)";
+const BUTTON_CHOSEN = "rgba(18,58,109,0.82)";
 
 function clearMeshes() {
   meshes.forEach((m) => m.dispose(false, true));
@@ -141,7 +147,14 @@ function repaintButton(entry: { mesh: Mesh; option: string; width: number }, bac
   const material = entry.mesh.material as StandardMaterial | null;
   const old = material?.diffuseTexture;
 
-  const texture = makeCardTexture(entry.option, entry.width, 0.34, 0.45, background);
+  const texture = makeCardTexture(
+    entry.option,
+    entry.width,
+    0.34,
+    0.45,
+    background,
+    background === BUTTON_CHOSEN
+  );
 
   if (material) {
     material.diffuseTexture = texture;
@@ -158,7 +171,8 @@ function makeCardTexture(
   width: number,
   height: number,
   fontScale: number,
-  background: string
+  background: string,
+  invertText = false
 ): DynamicTexture {
   const { scene } = deps!;
 
@@ -174,8 +188,9 @@ function makeCardTexture(
   const h = texture.getSize().height;
 
   ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = background;
-  ctx.fillRect(0, 0, w, h);
+
+  // Buttons pass a tint; question cards use the plain glass.
+  drawGlassPane(ctx, w, h, background === "GLASS" ? undefined : background);
 
   let fontSize = Math.floor(h * fontScale);
   const font = () => `bold ${fontSize}px system-ui, sans-serif`;
@@ -207,7 +222,7 @@ function makeCardTexture(
     lines = wrap();
   }
 
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = invertText ? "#ffffff" : NAVY;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
@@ -219,12 +234,76 @@ function makeCardTexture(
   return texture;
 }
 
+
+function roundedRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/**
+ * A pane of frosted glass: warm off-white fill, a soft diagonal sheen, and a
+ * bright edge. Translucent in the canvas rather than on the material, so the
+ * navy type stays solid while the glass behind it does not.
+ */
+function drawGlassPane(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  tint?: string
+) {
+  const inset = Math.max(3, h * 0.05);
+  const radius = Math.min(22, h * 0.24);
+
+  ctx.save();
+  roundedRect(ctx, inset, inset, w - inset * 2, h - inset * 2, radius);
+  ctx.clip();
+
+  const fill = ctx.createLinearGradient(0, 0, 0, h);
+  fill.addColorStop(0, tint ?? GLASS_TOP);
+  fill.addColorStop(1, tint ?? GLASS_BOTTOM);
+  ctx.fillStyle = fill;
+  ctx.fillRect(0, 0, w, h);
+
+  const sheen = ctx.createLinearGradient(0, 0, w * 0.7, h);
+  sheen.addColorStop(0, "rgba(255,255,255,0.32)");
+  sheen.addColorStop(0.35, "rgba(255,255,255,0.05)");
+  sheen.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = sheen;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = EDGE;
+  ctx.lineWidth = Math.max(2, h * 0.022);
+  roundedRect(ctx, inset, inset, w - inset * 2, h - inset * 2, radius);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function makeTextPlane(
   text: string,
   width: number,
   height: number,
   fontScale: number,
-  background = "rgba(10,20,40,0.88)"
+  background = "GLASS",
+  invertText = false
 ): Mesh {
   const { scene } = deps!;
 
@@ -235,7 +314,7 @@ function makeTextPlane(
   );
   plane.renderingGroupId = 1;
 
-  const texture = makeCardTexture(text, width, height, fontScale, background);
+  const texture = makeCardTexture(text, width, height, fontScale, background, invertText);
 
   const material = new StandardMaterial("surveyMat", scene);
   material.diffuseTexture = texture;
@@ -243,6 +322,8 @@ function makeTextPlane(
   material.opacityTexture = texture;
   material.disableLighting = true;
   material.backFaceCulling = false;
+  // The translucency lives in the canvas, so the navy type stays solid.
+  material.alpha = 1;
   plane.material = material;
 
   return plane;
@@ -306,7 +387,7 @@ function showQuestion(i: number) {
         ? "0 = not concerned          10 = very concerned"
         : "0 = not confident          10 = very confident";
 
-    const legend = makeTextPlane(hint, PANEL.width, 0.2, 0.5, "rgba(0,0,0,0)");
+    const legend = makeTextPlane(hint, PANEL.width, 0.2, 0.5, "rgba(255,255,255,0)");
     legend.isPickable = false;
     place(legend, 0, -0.3);
   }
@@ -348,6 +429,11 @@ export function handleSurveyPick(mesh: any): boolean {
 
   if (value === "__done") {
     clearMeshes();
+
+    // Full restart. A reload is the only way to be certain nothing is left
+    // half-running — the Convai session, a queued cue, a paused video — so the
+    // next customer starts on a clean street panel.
+    setTimeout(() => window.location.reload(), 300);
     return true;
   }
 
@@ -425,7 +511,7 @@ export function showResults() {
     place(row, 0, 0.45 - i * 0.36);
   });
 
-  const done = makeTextPlane("Done", 0.7, 0.3, 0.45, "rgba(20,90,86,0.92)");
+  const done = makeTextPlane("Done", 0.7, 0.3, 0.45, BUTTON_CHOSEN, true);
   done.isPickable = true;
   done.name = "surveyOption:__done";
   place(done, 0, -0.75);

@@ -20,7 +20,7 @@ const PHONE = {
   yaw: 0,
   pitch: -2,
   distance: 2.0,
-  width: 1.0,      // screen width in metres — large, but VR text needs it
+  width: 0.7,      // screen width in metres — large, but VR text needs it
   aspect: 2.05,    // height as a multiple of width
 };
 
@@ -34,25 +34,29 @@ const CAPTION = {
 /**
  * Who narrates the steps.
  *
- *   "convai"  — she reads each step. Costs one interaction per step (eleven
+ *   "convai"  — she reads each step. Costs one interaction per step (fifteen
  *               per run) and adds a couple of seconds of latency on every tap.
  *   "browser" — the built-in voice. Free and instant, but a different voice
  *               from hers, which is noticeable.
  *   "none"    — captions only. She introduces the walkthrough and comments at
  *               the end; the typing carries the steps.
  */
-const NARRATION: "convai" | "browser" | "none" = "none";
+const NARRATION: "convai" | "browser" | "none" = "convai";
 
 /** One entry per image, in order. */
 const STEPS: string[] = [
-  "Open the everyday space, then the three-dot menu beside the account you want to pay into.",
+  "Open the everyday space, then the three-dot menu beside the current account you want to pay into.",
   "Choose Deposit cheque.",
   "Enter the amount. Up to £10,000 per cheque, £10,000 a day. You can add a reference if it helps you remember what it was for.",
+  "Now tap the camera icon marked Front of cheque.",
   "Allow the app to use your camera if it asks.",
-  "Lay the cheque on a flat, dark surface. Hold the phone level and directly above it. When the green border appears, hold still while it scans.",
-  "Choose Back of cheque and do the same again, even if that side is blank.",
-  "Select Review deposit.",
-  "Check the details, then select Confirm.",
+  "Lay the cheque on a flat, dark surface. Hold the phone level and directly above it.",
+  "When the green border appears, hold still and tap the capture button.",
+  "Press Use to continue, or Retake if it came out blurry.",
+  "Now choose Back of cheque.",
+  "Do the same again, even if that side is blank.",
+  "Press Use to continue, or Retake if it came out blurry.",
+  "Select Review deposit, check the details, then select Confirm.",
   "That's it. The money usually reaches your account within three working days. Keep the cheque until it does.",
   "To check on a deposit later, open the three-dot menu again and choose Deposit cheque.",
   "Then select Deposit history to see how it's progressing.",
@@ -70,6 +74,42 @@ let deps: ChequeDeps | null = null;
 
 export function initCheque(dependencies: ChequeDeps) {
   deps = dependencies;
+
+  // Drives the typewriter from here rather than depending on main.ts to call
+  // updateCheque every frame — one less thing to lose when main.ts is
+  // replaced.
+  dependencies.scene.onBeforeRenderObservable.add(() => {
+    updateCheque(dependencies.scene.getEngine().getDeltaTime());
+  });
+}
+
+/**
+ * Sends a line for the avatar to say. Falls back to the client on window if
+ * main.ts did not pass a tellConvai hook, so narration keeps working either
+ * way.
+ */
+function narrate(text: string) {
+  if (NARRATION === "none") return;
+
+  if (NARRATION === "browser") {
+    deps?.speak(text);
+    return;
+  }
+
+  const send =
+    deps?.tellConvai ??
+    ((line: string) =>
+      (window as any)?.convai?.sendUserTextMessage?.(
+        `Say this to the customer: ${line}`
+      ));
+
+  const client = (window as any)?.convai;
+  if (!deps?.tellConvai && !client) {
+    console.warn("Cheque narration: no Convai client available.");
+    return;
+  }
+
+  send(text);
 }
 
 let meshes: Mesh[] = [];
@@ -241,9 +281,9 @@ function showStep(step: number) {
   captionTexture.hasAlpha = true;
 
   captionFull = caption;
-  captionShown = 0;
+  captionShown = 1;
   captionTimer = 0;
-  drawCaption(captionTexture, "");
+  drawCaption(captionTexture, caption.slice(0, 1));
 
   const capMat = new StandardMaterial("chequeCapMat", scene);
   capMat.diffuseTexture = captionTexture;
@@ -255,61 +295,8 @@ function showStep(step: number) {
 
   place(captionPlane, 0, -height / 2 - CAPTION.gap - CAPTION.height / 2);
 
-  // Step counter and a quiet prompt, both beneath the caption.
-  const footer = MeshBuilder.CreatePlane(
-    "chequeFooter",
-    { width: 1.6, height: 0.18, sideOrientation: Mesh.DOUBLESIDE },
-    scene
-  );
-  footer.renderingGroupId = 2;
-  footer.isPickable = false;
-
-  const footTex = new DynamicTexture(
-    "chequeFootTex",
-    { width: 1024, height: 115 },
-    scene,
-    true
-  );
-  footTex.hasAlpha = true;
-
-  const fctx = footTex.getContext() as CanvasRenderingContext2D;
-  fctx.clearRect(0, 0, 1024, 115);
-  fctx.font = "600 46px system-ui, sans-serif";
-  fctx.textAlign = "center";
-  fctx.textBaseline = "middle";
-  fctx.lineJoin = "round";
-  fctx.lineWidth = 8;
-  fctx.strokeStyle = "rgba(0,0,0,0.85)";
-  fctx.fillStyle = "#bfe8e3";
-
-  const footText =
-    step === STEPS.length - 1
-      ? `Step ${step + 1} of ${STEPS.length}  ·  tap the screen to finish`
-      : `Step ${step + 1} of ${STEPS.length}  ·  tap the screen to continue`;
-
-  fctx.strokeText(footText, 512, 57);
-  fctx.fillText(footText, 512, 57);
-  footTex.update();
-
-  const footMat = new StandardMaterial("chequeFootMat", scene);
-  footMat.diffuseTexture = footTex;
-  footMat.emissiveTexture = footTex;
-  footMat.opacityTexture = footTex;
-  footMat.disableLighting = true;
-  footMat.backFaceCulling = false;
-  footer.material = footMat;
-
-  place(
-    footer,
-    0,
-    -height / 2 - CAPTION.gap - CAPTION.height - 0.16
-  );
-
-  if (NARRATION === "browser") {
-    deps!.speak(caption);
-  } else if (NARRATION === "convai") {
-    deps!.tellConvai?.(caption);
-  }
+  console.log(`Cheque step ${step + 1}/${STEPS.length} — narration: ${NARRATION}`);
+  narrate(caption);
 }
 
 export function startCheque() {
@@ -323,8 +310,28 @@ export function startCheque() {
 }
 
 export function hideCheque() {
+  const finished = index >= STEPS.length - 1;
+
   clearMeshes();
   index = -1;
+
+  // She has no way of knowing the walkthrough ended — she cannot see it — so
+  // she has to be told, or she just goes quiet.
+  if (!finished) return;
+
+  setTimeout(() => {
+    if (NARRATION === "convai") {
+      narrate(
+        "The walkthrough has finished. Ask how it felt and whether they " +
+          "would like to go over any part of it again."
+      );
+    } else {
+      deps?.speak(
+        "That's the whole thing. How did that feel? I'm happy to go through " +
+          "any part of it again."
+      );
+    }
+  }, 800);
 }
 
 export function stepChequeBack() {

@@ -20,13 +20,14 @@ import {
 const MAP = {
   video: "/video/hub-map.mp4",
   caption: "Banking Hub · SS4 1AJ · 1.4 miles · bus route 7",
-  yaw: 0,        // straight ahead
+  yaw: -10,        // straight ahead
   pitch: 0,
   distance: 2.8,
-  width: 3.2,
+  width: 2.8,
   aspect: 9 / 16, // height as a fraction of width; 9/16 suits landscape video
   loop: false,    // true if the animation should keep repeating
-  holdMs: 25000,  // fallback if the video never reports that it ended
+  holdMs: 25000, 
+   alpha: 0.75,     // panel opacity — lower lets the hub show through // fallback if the video never reports that it ended
 };
 
 type MapDeps = {
@@ -112,6 +113,7 @@ export function showMap() {
   material.backFaceCulling = false;
   // Maps are usually drawn light; lift it so it reads in a dim room.
   material.emissiveColor.set(1.2, 1.2, 1.2);
+  material.alpha = MAP.alpha;
   panel.material = material;
 
   place(panel, 0);

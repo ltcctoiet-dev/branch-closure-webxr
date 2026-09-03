@@ -237,6 +237,7 @@ initSurvey({ scene, world, speak });
 initBoard({ scene, world });
 initCheque({ scene, world, speak });
 initMap({ scene, world });
+
 world.parent = rig;
 
 // useDirectMapping keeps the equirectangular image on the sphere as-is.
@@ -376,7 +377,7 @@ function buildMarkers(node: NodeConfig) {
 
     const labelPlane = MeshBuilder.CreatePlane(
       "labelPlane",
-      { width: 2.2, height: 0.55, sideOrientation: Mesh.DOUBLESIDE },
+      { width: 1.6, height: 0.4, sideOrientation: Mesh.DOUBLESIDE },
       scene
     );
     labelPlane.renderingGroupId = 1;
@@ -495,6 +496,7 @@ function buildIntro() {
   material.emissiveTexture = texture;
   material.disableLighting = true;
   material.backFaceCulling = false;
+  material.emissiveColor = new Color3(1.5, 1.5, 1.5);
   introPlane.material = material;
 
   // Match the panel to the photo's real shape once it has loaded.
@@ -880,7 +882,8 @@ const isInteractive = (mesh: any) =>
   (isIntroTarget(mesh) ||
     !!findMarker(mesh) ||
     String(mesh.name).startsWith("surveyOption:") ||
-    String(mesh.name).startsWith("chequeStep:"));
+    String(mesh.name).startsWith("chequeStep:") ||
+    String(mesh.name).startsWith("control:"));
 
 // The baseline is taken outside, before she has had a chance to reassure them.
 let preSurveyDone = false;
@@ -1500,17 +1503,6 @@ function hideVideo() {
   videoPlane = null;
   console.log("Video panel hidden");
 }
-window.addEventListener("keydown", (e) => {
-  if (e.key === "v") videoPlane ? hideVideo() : showVideo("cheque");
-});
-
-// Testing shortcuts: 1 runs the baseline survey, 2 runs the closing one.
-// Keep these for demos — being able to force the survey is a useful safety net.
-window.addEventListener("keydown", (e) => {
-  if (e.key === "1") startSurvey("pre");
-  if (e.key === "2") startSurvey("post");
-});
-
 // --- Video cues ------------------------------------------------------------
 // She says a fixed line from the knowledge base; that line plays the film.
 // More dependable than guessing intent, since the wording is ours.
@@ -1718,13 +1710,4 @@ scene.onBeforeRenderObservable.add(() => {
     mouthUpperUpLeft: mouthOpenNow * 0.3,
     mouthUpperUpRight: mouthOpenNow * 0.3,
   });
-});
-window.addEventListener("keydown", (e) => {
-  if (e.key === "s") isBoardVisible() ? hideServiceBoard() : showServiceBoard();
-});
-window.addEventListener("keydown", (e) => {
-  if (e.key === "m") isMapVisible() ? hideMap() : showMap();
-});
-window.addEventListener("keydown", (e) => {
-  if (e.key === "c") isChequeVisible() ? hideCheque() : startCheque();
 });

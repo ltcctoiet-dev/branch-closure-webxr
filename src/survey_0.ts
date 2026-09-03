@@ -104,35 +104,82 @@ let phase: SurveyPhase = "pre";
 let questions: SurveyQuestion[] = [];
 let index = -1;
 let meshes: Mesh[] = [];
+let optionButtons: { mesh: Mesh; option: string; width: number }[] = [];
 let onComplete: (() => void) | null = null;
 
 export const isSurveyActive = () => index >= 0;
+
+/** Call from the pointer-move handler so buttons respond to the controller ray. */
+export function highlightSurveyHover(mesh: any) {
+  if (index < 0) return;
+
+  optionButtons.forEach((entry) => {
+    if (!entry.mesh.isPickable) return;
+    const wanted = entry.mesh === mesh ? BUTTON_HOVER : BUTTON_IDLE;
+    if ((entry.mesh as any)._paint === wanted) return;
+    (entry.mesh as any)._paint = wanted;
+    repaintButton(entry, wanted);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Drawing
 // ---------------------------------------------------------------------------
 
+// Background image behind the cards. Set to null for the plain dark fill.
+const BACKGROUND = "/images/panel-bg.jpg";
+
+// Overall card opacity. 0.6 lets the hub show through behind them.
+const PANEL_ALPHA = 0.6;
+
+let backgroundImage: HTMLImageElement | null = null;
+let backgroundReady = false;
+
+if (BACKGROUND) {
+  const img = new Image();
+  img.onload = () => {
+    backgroundImage = img;
+    backgroundReady = true;
+  };
+  img.onerror = () => console.warn("Panel background failed to load:", BACKGROUND);
+  img.src = BACKGROUND;
+}
+
+const BUTTON_IDLE = "rgba(8,40,52,0.28)";
+const BUTTON_HOVER = "rgba(22,86,104,0.45)";
+const BUTTON_CHOSEN = "rgba(244,168,54,0.97)";
+
 function clearMeshes() {
   meshes.forEach((m) => m.dispose(false, true));
   meshes = [];
+  optionButtons = [];
+}
+
+/** Swaps a button's background without moving or re-parenting it. */
+function repaintButton(entry: { mesh: Mesh; option: string; width: number }, background: string) {
+  const material = entry.mesh.material as StandardMaterial | null;
+  const old = material?.diffuseTexture;
+
+  const texture = makeCardTexture(entry.option, entry.width, 0.34, 0.45, background);
+
+  if (material) {
+    material.diffuseTexture = texture;
+    material.emissiveTexture = texture;
+    material.opacityTexture = texture;
+  }
+
+  old?.dispose();
 }
 
 /** A card with wrapped, auto-sized white text on a dark background. */
-function makeTextPlane(
+function makeCardTexture(
   text: string,
   width: number,
   height: number,
   fontScale: number,
-  background = "rgba(10,20,40,0.88)"
-): Mesh {
+  background: string
+): DynamicTexture {
   const { scene } = deps!;
-
-  const plane = MeshBuilder.CreatePlane(
-    "surveyCard",
-    { width, height, sideOrientation: Mesh.DOUBLESIDE },
-    scene
-  );
-  plane.renderingGroupId = 1;
 
   const texture = new DynamicTexture(
     "surveyTex",
@@ -146,8 +193,19 @@ function makeTextPlane(
   const h = texture.getSize().height;
 
   ctx.clearRect(0, 0, w, h);
+  // Background picture behind the card, darkened so the text still reads.
+  if (backgroundReady && backgroundImage) {
+    const scale = Math.max(w / backgroundImage.width, h / backgroundImage.height);
+    const dw = backgroundImage.width * scale;
+    const dh = backgroundImage.height * scale;
+    ctx.drawImage(backgroundImage, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    ctx.fillStyle = "rgba(2,12,22,0.2)";
+    ctx.fillRect(0, 0, w, h);
+  }
+
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, w, h);
+  drawHudFrame(ctx, w, h);
 
   let fontSize = Math.floor(h * fontScale);
   const font = () => `bold ${fontSize}px system-ui, sans-serif`;
@@ -182,12 +240,110 @@ function makeTextPlane(
   ctx.fillStyle = "#ffffff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.shadowColor = "rgba(0,0,0,0.9)";
+  ctx.shadowBlur = 14;
 
   const lineHeight = fontSize * 1.3;
   const top = h / 2 - ((lines.length - 1) * lineHeight) / 2;
   lines.forEach((l, i) => ctx.fillText(l, w / 2, top + i * lineHeight));
+  ctx.shadowBlur = 0;
 
   texture.update();
+  return texture;
+}
+
+
+/**
+ * A HUD-style frame: corner brackets, a thin glowing edge, and a faint grid.
+ * Drawn onto the card's canvas after the background fill.
+ */
+function drawHudFrame(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  accent = "#4fd8e8"
+) {
+  const inset = Math.max(4, h * 0.06);
+  const bracket = Math.min(w, h) * 0.18;
+
+  // Faint grid, so the panel reads as a display rather than a card.
+  ctx.save();
+  ctx.strokeStyle = accent;
+  ctx.globalAlpha = 0.08;
+  ctx.lineWidth = 1;
+  const step = Math.max(24, h / 8);
+  for (let x = inset; x < w - inset; x += step) {
+    ctx.beginPath();
+    ctx.moveTo(x, inset);
+    ctx.lineTo(x, h - inset);
+    ctx.stroke();
+  }
+  for (let y = inset; y < h - inset; y += step) {
+    ctx.beginPath();
+    ctx.moveTo(inset, y);
+    ctx.lineTo(w - inset, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Thin outer edge.
+  ctx.save();
+  ctx.strokeStyle = accent;
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(inset, inset, w - inset * 2, h - inset * 2);
+  ctx.restore();
+
+  // Corner brackets, glowing.
+  ctx.save();
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = Math.max(3, h * 0.035);
+  ctx.lineCap = "square";
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 18;
+
+  const corners: [number, number, number, number][] = [
+    [inset, inset, 1, 1],
+    [w - inset, inset, -1, 1],
+    [inset, h - inset, 1, -1],
+    [w - inset, h - inset, -1, -1],
+  ];
+
+  for (const [x, y, dx, dy] of corners) {
+    ctx.beginPath();
+    ctx.moveTo(x + dx * bracket, y);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x, y + dy * bracket);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // A short accent notch on the left edge.
+  ctx.save();
+  ctx.fillStyle = accent;
+  ctx.shadowColor = accent;
+  ctx.shadowBlur = 12;
+  ctx.fillRect(inset, h * 0.38, Math.max(3, h * 0.03), h * 0.24);
+  ctx.restore();
+}
+
+function makeTextPlane(
+  text: string,
+  width: number,
+  height: number,
+  fontScale: number,
+  background = "rgba(4,14,24,0.15)"
+): Mesh {
+  const { scene } = deps!;
+
+  const plane = MeshBuilder.CreatePlane(
+    "surveyCard",
+    { width, height, sideOrientation: Mesh.DOUBLESIDE },
+    scene
+  );
+  plane.renderingGroupId = 1;
+
+  const texture = makeCardTexture(text, width, height, fontScale, background);
 
   const material = new StandardMaterial("surveyMat", scene);
   material.diffuseTexture = texture;
@@ -195,6 +351,7 @@ function makeTextPlane(
   material.opacityTexture = texture;
   material.disableLighting = true;
   material.backFaceCulling = false;
+  material.alpha = PANEL_ALPHA;
   plane.material = material;
 
   return plane;
@@ -244,16 +401,11 @@ function showQuestion(i: number) {
   const buttonWidth = (PANEL.width - gap * (count - 1)) / count;
 
   question.options.forEach((option, n) => {
-    const button = makeTextPlane(
-      option,
-      buttonWidth,
-      0.34,
-      0.45,
-      "rgba(20,90,86,0.92)"
-    );
+    const button = makeTextPlane(option, buttonWidth, 0.34, 0.45, BUTTON_IDLE);
     button.isPickable = true;
     button.name = `surveyOption:${option}`;
     place(button, -PANEL.width / 2 + buttonWidth / 2 + n * (buttonWidth + gap), 0);
+    optionButtons.push({ mesh: button, option, width: buttonWidth });
   });
 
   // A bare row of numbers means nothing without its ends explained.
@@ -305,17 +457,27 @@ export function handleSurveyPick(mesh: any): boolean {
 
   if (value === "__done") {
     clearMeshes();
+
+    // Full restart. A reload is the only way to be certain nothing is left
+    // half-running — the Convai session, a queued cue, a paused video — so the
+    // next customer starts on a clean street panel.
+    setTimeout(() => window.location.reload(), 300);
     return true;
   }
 
   surveyResults[phase].push(value);
   index += 1;
 
+  // Light up the choice and freeze the panel, so the tap is visibly confirmed
+  // before the question changes.
+  const chosen = optionButtons.find((b) => b.option === value);
+  if (chosen) repaintButton(chosen, BUTTON_CHOSEN);
+  optionButtons.forEach((b) => (b.mesh.isPickable = false));
+
   if (index < questions.length) {
-    // Brief pause so the tap does not clip the previous line.
-    setTimeout(() => showQuestion(index), 400);
+    setTimeout(() => showQuestion(index), 650);
   } else {
-    finish();
+    setTimeout(() => finish(), 650);
   }
 
   return true;
@@ -331,7 +493,7 @@ function finish() {
     const callback = onComplete;
     onComplete = null;
     // Let the line land before the scene changes.
-    setTimeout(() => callback?.(), 600);
+    setTimeout(() => callback?.(), 1200);
     return;
   }
 
@@ -377,7 +539,7 @@ export function showResults() {
     place(row, 0, 0.45 - i * 0.36);
   });
 
-  const done = makeTextPlane("Done", 0.7, 0.3, 0.45, "rgba(20,90,86,0.92)");
+  const done = makeTextPlane("Done", 0.7, 0.3, 0.45, "rgba(8,40,52,0.28)");
   done.isPickable = true;
   done.name = "surveyOption:__done";
   place(done, 0, -0.75);
