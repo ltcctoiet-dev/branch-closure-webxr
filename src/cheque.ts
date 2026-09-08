@@ -50,19 +50,19 @@ const NARRATION: "convai" | "browser" | "none" = "convai";
 const STEPS: string[] = [
   "Open the everyday space, then the three-dot menu beside the current account you want to pay into.",
   "Choose Deposit cheque.",
-  "Enter the amount. Up to £10,000 per cheque, £10,000 a day. You can add a reference if it helps you remember what it was for.",
-  "Now tap the camera icon marked Front of cheque.",
+  "You can enter the amount and other fields. Now tap the camera icon marked Front of cheque.",
   "Allow the app to use your camera if it asks.",
-  "Lay the cheque on a flat, dark surface. Hold the phone level and directly above it.",
-  "When the green border appears, hold still and tap the capture button.",
+  "Lay the cheque on a flat, dark surface. When the green border appears, hold still and tap the capture button",
   "Press Use to continue, or Retake if it came out blurry.",
   "Now choose Back of cheque.",
   "Do the same again, even if that side is blank.",
   "Press Use to continue, or Retake if it came out blurry.",
-  "Select Review deposit, check the details, then select Confirm.",
-  "That's it. The money usually reaches your account within three working days. Keep the cheque until it does.",
-  "To check on a deposit later, open the three-dot menu again and choose Deposit cheque.",
-  "Then select Deposit history to see how it's progressing.",
+  "Select Review deposit.", 
+  "Check the details, then select Confirm.",
+  "That's it. The money usually reaches your account within three working days. Keep the cheque until it does.Now click back to your accounts.",
+  "To check on a deposit later, open the three-dot menu again.",
+  "Choose Deposit cheque.",
+  "In the Deposit history section you can see how the deposit is progressing.",
 ];
 
 type ChequeDeps = {
