@@ -16,7 +16,6 @@ import {
   Scene,
   StandardMaterial,
   TransformNode,
-  Vector3,
 } from "@babylonjs/core";
 
 // ---------------------------------------------------------------------------
@@ -71,9 +70,7 @@ const RESULT_LABELS = [
 ];
 
 const PANEL = {
-  // A nudge off centre, applied on top of wherever the customer is facing when
-  // the panel opens. Leave at 0 to put it dead ahead.
-  yaw: 0,
+  yaw: 0, // straight ahead
   pitch: -8,
   distance: 2.6,
   width: 2.8,
@@ -109,15 +106,6 @@ let index = -1;
 let meshes: Mesh[] = [];
 let optionButtons: { mesh: Mesh; option: string; width: number }[] = [];
 let onComplete: (() => void) | null = null;
-
-/**
- * The heading the panel was built around, in the local space of the world node.
- *
- * Captured once when a panel opens and then held. It must not track the head
- * afterwards — a panel that follows your gaze is unreadable in a headset, and
- * the customer needs to be able to look away from a question and back again.
- */
-let panelYaw = 0;
 
 export const isSurveyActive = () => index >= 0;
 
@@ -341,37 +329,9 @@ function makeTextPlane(
   return plane;
 }
 
-/**
- * Reads the customer's current heading and stores it as the panel's yaw.
- *
- * The panel is parented to the world node, so the camera's direction has to be
- * pushed through the inverse of that node's matrix before it means anything as
- * a local yaw. Without this the panel sat at a fixed heading, which read as
- * straight ahead at the start of the session and increasingly crooked after
- * the customer had turned or jumped nodes.
- */
-function captureViewYaw() {
-  const camera = deps?.scene.activeCamera;
-
-  if (!camera || !deps) {
-    panelYaw = 0;
-    return;
-  }
-
-  const forward = camera.getForwardRay().direction;
-  const inverse = deps.world.getWorldMatrix().clone().invert();
-  const local = Vector3.TransformNormal(forward, inverse);
-
-  // Looking straight up or down leaves nothing to take a heading from; keep
-  // whatever we had rather than snapping the panel to an arbitrary direction.
-  if (local.x * local.x + local.z * local.z < 1e-6) return;
-
-  panelYaw = Math.atan2(local.x, local.z);
-}
-
 /** Where the panel sits, in the local space of the head rig. */
 function basis() {
-  const yaw = panelYaw + (PANEL.yaw * Math.PI) / 180;
+  const yaw = (PANEL.yaw * Math.PI) / 180;
   const pitch = (PANEL.pitch * Math.PI) / 180;
   const horizontal = PANEL.distance * Math.cos(pitch);
 
@@ -454,11 +414,6 @@ export function startSurvey(nextPhase: SurveyPhase, done?: () => void) {
 
   surveyResults[nextPhase] = [];
   index = 0;
-
-  // Anchor the panel to wherever they are looking now, and hold it there for
-  // the run of questions.
-  captureViewYaw();
-
   showQuestion(0);
 }
 
@@ -527,10 +482,6 @@ function finish() {
 /** The before-and-after, on a panel rather than buried in the console. */
 export function showResults() {
   clearMeshes();
-
-  // Taken again rather than reused: the completion callback may have jumped
-  // the customer somewhere else in the 900ms before this runs.
-  captureViewYaw();
 
   const title = makeTextPlane(
     "How you felt, before and after",

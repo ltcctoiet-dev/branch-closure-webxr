@@ -190,7 +190,6 @@ const AVATAR = {
   eyeHeight: 2,
   scale: 1,
   faceOffset: 180,
-  gestureYawOffset: 0, // degrees, applied only while a gesture plays
 };
 
 // ---------------------------------------------------------------------------
@@ -808,7 +807,6 @@ function speak(text: string) {
 // --- Avatar ----------------------------------------------------------------
 
 let avatarRoot: Mesh | null = null;
-let avatarBaseYaw = 0;
 let hasGreeted = false;
 let talkClip: any = null;
 let idleClip: any = null;
@@ -867,10 +865,6 @@ function playGesture(fragment: string) {
   // start(true), and a looping gesture never ends — which leaves her stuck in
   // it for the rest of the session.
   clip.start(false, 1.0, clip.from, clip.to, false);
-  if (avatarRoot) {
-    avatarRoot.rotation.y =
-      avatarBaseYaw + (AVATAR.gestureYawOffset * Math.PI) / 180;
-  }
   console.log("Gesture:", clip.name);
 
   let restored = false;
@@ -878,7 +872,6 @@ function playGesture(fragment: string) {
   const restore = () => {
     if (restored) return;
     restored = true;
-    if (avatarRoot) avatarRoot.rotation.y = avatarBaseYaw;
     gestureClip = null;
     clip.stop();
 
@@ -994,7 +987,6 @@ async function updateAvatar(node: NodeConfig) {
 
     root.rotationQuaternion = null;
     root.rotation.y = yaw + (AVATAR.faceOffset * Math.PI) / 180;
-    avatarBaseYaw = root.rotation.y;
     root.scaling.setAll(AVATAR.scale);
 
     // Every real clip is kept, so gestures can be played by name later. The
@@ -1818,6 +1810,7 @@ scene.onBeforeRenderObservable.add(() => {
     // list; she understands them all, so her farewell is the better signal.
     if (
       seenCues.has("post") &&
+      !sessionEnding &&
       !seenCues.has("farewell") &&
       FAREWELL_CUES.some((p) => text.includes(p))
     ) {
@@ -1900,6 +1893,21 @@ const gesturedMessages = new Set<string>();
 // --- Closing survey consent ------------------------------------------------
 
 let postSurveyPending = false;
+// Set once the customer has answered, so the farewell cue does not also fire.
+let sessionEnding = false;
+/**
+ * Ends the session on the street panel. Deliberately not a page reload — that
+ * would wipe the baseline survey answers, and the whole point is comparing
+ * them against the closing ones.
+ */
+function returnToStreet(withSurvey: boolean) {
+  goToNode("intro");
+
+  if (!withSurvey) return;
+
+  // After the fade has settled, so the questions do not appear mid-transition.
+  setTimeout(() => startSurvey("post"), 2200);
+}
 
 // Anything she says when winding the conversation up.
 const FAREWELL_CUES = [
@@ -1968,20 +1976,18 @@ function handleSurveyAnswer(said: string): boolean {
   // because "okay, goodbye" reads as agreement to a naive yes match.
   if (saidAny(said, FAREWELL_CUES) || saidAny(said, SAID_NO) || said.trim() === "no") {
     postSurveyPending = false;
-    console.log("Closing survey declined.");
-    // Her own reply handles the goodbye; the farewell cue above then brings
-    // us back to the street.
+    sessionEnding = true;
+    console.log("Closing survey declined — heading out to the street.");
+    // Long enough for her to say goodbye first.
+    setTimeout(() => returnToStreet(false), 5500);
     return true;
   }
 
-  if (saidAny(said, SAID_YES)) {
+   if (saidAny(said, SAID_YES)) {
     postSurveyPending = false;
-    console.log("Closing survey accepted.");
-    // Long enough for her to acknowledge before the questions appear.
-    postSurveyTimer = window.setTimeout(() => {
-      postSurveyTimer = 0;
-      startSurvey("post");
-    }, 4000);
+    sessionEnding = true;
+    console.log("Closing survey accepted — heading out to the street.");
+    setTimeout(() => returnToStreet(true), 3500);
     return true;
   }
 
