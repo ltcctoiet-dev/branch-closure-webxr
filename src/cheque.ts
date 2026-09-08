@@ -10,7 +10,6 @@ import {
   MeshBuilder,
   Scene,
   StandardMaterial,
-  Texture,
   TransformNode,
 } from "@babylonjs/core";
 
@@ -21,7 +20,11 @@ const PHONE = {
   pitch: -2,
   distance: 2.0,
   width: 0.7,      // screen width in metres — large, but VR text needs it
-  aspect: 2.05,    // height as a multiple of width
+  // Starting aspect only. Once a screenshot loads, the plane is reshaped to
+  // that image's own proportions so nothing is cropped or stretched.
+  aspect: 2.05,       // height as a multiple of width
+  cornerRadius: 0.2,  // as a fraction of the screen width
+  maxTexture: 2048,   // cap on the canvas long edge, for headset memory
 };
 
 const CAPTION = {
@@ -243,19 +246,15 @@ function showStep(step: number) {
   screen.isPickable = true;
   screen.name = "chequeStep:next";
 
-  const texture = new Texture(
-    `${PHONE.folder}${step + 1}${PHONE.extension}`,
-    scene
-  );
-
   const material = new StandardMaterial("chequeScreenMat", scene);
-  material.diffuseTexture = texture;
-  material.emissiveTexture = texture;
   material.disableLighting = true;
   material.backFaceCulling = false;
   // App screenshots are light; lift them so they read in a dim room.
   material.emissiveColor.set(1.15, 1.15, 1.15);
   screen.material = material;
+  // Kept hidden until the screenshot is drawn onto it, so there is no blank
+  // white card sitting there while the image loads.
+  screen.isVisible = false;
 
   place(screen, 0, 0);
 
@@ -294,6 +293,76 @@ function showStep(step: number) {
   captionPlane.material = capMat;
 
   place(captionPlane, 0, -height / 2 - CAPTION.gap - CAPTION.height / 2);
+
+  // The screenshot is drawn through a rounded clip rather than mapped straight
+  // onto the plane, so the corners come out curved like a real handset. The
+  // canvas is not created until the image has loaded, so it can be sized to
+  // the screenshot's own dimensions — nothing is cropped or stretched, and the
+  // plane is reshaped to match.
+  const image = new Image();
+
+  image.onerror = () =>
+    console.warn(`Cheque screenshot missing: ${step + 1}${PHONE.extension}`);
+
+  image.onload = () => {
+    if (screen.isDisposed()) return;
+
+    const longEdge = Math.max(image.width, image.height);
+    const fit = Math.min(1, PHONE.maxTexture / longEdge);
+    const texWidth = Math.round(image.width * fit);
+    const texHeight = Math.round(image.height * fit);
+
+    const texture = new DynamicTexture(
+      "chequeScreenTex",
+      { width: texWidth, height: texHeight },
+      scene,
+      true
+    );
+    texture.hasAlpha = true;
+
+    const ctx = texture.getContext() as CanvasRenderingContext2D;
+    ctx.clearRect(0, 0, texWidth, texHeight);
+    ctx.save();
+
+    const r = texWidth * PHONE.cornerRadius;
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(texWidth - r, 0);
+    ctx.quadraticCurveTo(texWidth, 0, texWidth, r);
+    ctx.lineTo(texWidth, texHeight - r);
+    ctx.quadraticCurveTo(texWidth, texHeight, texWidth - r, texHeight);
+    ctx.lineTo(r, texHeight);
+    ctx.quadraticCurveTo(0, texHeight, 0, texHeight - r);
+    ctx.lineTo(0, r);
+    ctx.quadraticCurveTo(0, 0, r, 0);
+    ctx.closePath();
+    ctx.clip();
+
+    // One to one, because the canvas is the image's own size.
+    ctx.drawImage(image, 0, 0, texWidth, texHeight);
+
+    ctx.restore();
+    texture.update();
+
+    material.diffuseTexture = texture;
+    material.emissiveTexture = texture;
+    material.opacityTexture = texture;
+    screen.isVisible = true;
+
+    // Reshape the plane to the screenshot's proportions, then drop the caption
+    // back under whatever height that turned out to be.
+    const trueAspect = image.height / image.width;
+    screen.scaling.y = trueAspect / PHONE.aspect;
+
+    const trueHeight = PHONE.width * trueAspect;
+    place(
+      captionPlane,
+      0,
+      -trueHeight / 2 - CAPTION.gap - CAPTION.height / 2
+    );
+  };
+
+  image.src = `${PHONE.folder}${step + 1}${PHONE.extension}`;
 
   console.log(`Cheque step ${step + 1}/${STEPS.length} — narration: ${NARRATION}`);
   narrate(caption);

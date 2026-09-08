@@ -53,16 +53,15 @@ import {
 import {
   hideServiceBoard,
   initBoard,
-  isBoardVisible,
   showServiceBoard,
 } from "./board";
-import { hideMap, initMap, isMapVisible, showMap } from "./map";
+import { hideMap, initMap, showMap } from "./map";
 import {
   handleChequePick,
-  hideCheque,
   initCheque,
   isChequeVisible,
   startCheque,
+  stepChequeBack,
 } from "./cheque";
 
 
@@ -119,10 +118,11 @@ type PanelConfig = {
   id: string;
   image: string;
   label: string;
-  target: string;   // node entered when the panel is selected
-  width: number;    // panel width in metres
-  distance: number; // how far in front of you it sits
-  yaw: number;      // where it first appears; later it follows your gaze
+  target: string;    // node entered when the panel is selected
+  width: number;     // panel width in metres
+  distance: number;  // how far in front of you it sits
+  yaw: number;       // where it first appears; later it follows your gaze
+  brightness?: number; // 1.0 is the photo as-is; higher lifts a dark shot
 };
 
 const PANELS: PanelConfig[] = [
@@ -134,6 +134,7 @@ const PANELS: PanelConfig[] = [
     width: 10,
     distance: 7,
     yaw: 0,
+    brightness: 1.5,
   },
   {
     id: "branch",
@@ -143,6 +144,7 @@ const PANELS: PanelConfig[] = [
     width: 10,
     distance: 7,
     yaw: 0,
+    brightness: 1.9,
   },
 ];
 
@@ -188,6 +190,7 @@ const AVATAR = {
   eyeHeight: 2,
   scale: 1,
   faceOffset: 180,
+  gestureYawOffset: 0, // degrees, applied only while a gesture plays
 };
 
 // ---------------------------------------------------------------------------
@@ -377,7 +380,7 @@ function buildMarkers(node: NodeConfig) {
 
     const labelPlane = MeshBuilder.CreatePlane(
       "labelPlane",
-      { width: 1.6, height: 0.4, sideOrientation: Mesh.DOUBLESIDE },
+      { width: 2.2, height: 0.55, sideOrientation: Mesh.DOUBLESIDE },
       scene
     );
     labelPlane.renderingGroupId = 1;
@@ -467,6 +470,12 @@ function facingYawDegrees(): number {
 let introPlane: Mesh | null = null;
 let introPick: Mesh | null = null;
 let introBall: Mesh | null = null;
+let introSkip: Mesh | null = null;
+let introSkipLabel: Mesh | null = null;
+
+// Set when the customer skips, so the welcome trigger and its screens are
+// suppressed rather than firing over the top of whatever they do next.
+let introSkipped = false;
 let introLabel: Mesh | null = null;
 let inIntro = false;
 
@@ -496,7 +505,9 @@ function buildIntro() {
   material.emissiveTexture = texture;
   material.disableLighting = true;
   material.backFaceCulling = false;
-  material.emissiveColor = new Color3(1.5, 1.5, 1.5);
+  // These panels ignore scene lighting, so brightness is set per panel here.
+  const lift = INTRO.brightness ?? 1.5;
+  material.emissiveColor = new Color3(lift, lift, lift);
   introPlane.material = material;
 
   // Match the panel to the photo's real shape once it has loaded.
@@ -515,6 +526,42 @@ function buildIntro() {
   introPick.isVisible = false;
   introPick.isPickable = true;
   introPick.parent = world;
+
+  // Skip: straight past the baseline survey and the welcome, for repeat
+  // demos where the full opening has already been seen.
+  introSkip = MeshBuilder.CreateSphere(
+    "introSkip",
+    { diameter: MARKER_RADIUS * 1.5, segments: 16 },
+    scene
+  );
+  introSkip.renderingGroupId = 1;
+  introSkip.isPickable = true;
+  introSkip.name = "intro:skip";
+  introSkip.parent = world;
+
+  const skipMaterial = new StandardMaterial("introSkipMat", scene);
+  skipMaterial.emissiveColor = new Color3(0.62, 0.62, 0.66);
+  skipMaterial.disableLighting = true;
+  skipMaterial.alpha = 0.85;
+  introSkip.material = skipMaterial;
+
+  introSkipLabel = MeshBuilder.CreatePlane(
+    "introSkipLabel",
+    { width: 1.4, height: 0.35, sideOrientation: Mesh.DOUBLESIDE },
+    scene
+  );
+  introSkipLabel.renderingGroupId = 1;
+  introSkipLabel.isPickable = false;
+  introSkipLabel.parent = world;
+
+  const skipTexture = makeLabelTexture("Skip the introduction");
+  const skipLabelMat = new StandardMaterial("introSkipLabelMat", scene);
+  skipLabelMat.diffuseTexture = skipTexture;
+  skipLabelMat.emissiveTexture = skipTexture;
+  skipLabelMat.opacityTexture = skipTexture;
+  skipLabelMat.disableLighting = true;
+  skipLabelMat.backFaceCulling = false;
+  introSkipLabel.material = skipLabelMat;
 
   introBall = MeshBuilder.CreateSphere(
     "introBall",
@@ -562,6 +609,7 @@ function buildIntro() {
 function positionIntro() {
   const INTRO = currentPanel;
   if (!INTRO || !introPlane || !introLabel || !introPick || !introBall) return;
+  if (!introSkip || !introSkipLabel) return;
 
   const yaw = (introYaw * Math.PI) / 180;
   const x = INTRO.distance * Math.sin(yaw);
@@ -581,7 +629,28 @@ function positionIntro() {
     -drop,
     z * (1 - pull / INTRO.distance)
   );
+  // Fixed to face outward from its own position. Without this the label keeps
+  // the default facing while the panel moves, so it skews as you look around.
+  introLabel.rotation.y = yaw;
+  introLabel.rotation.x = 0;
+  introLabel.rotation.z = 0;
   introBall.position.set(x, -drop - 0.95, z);
+
+  // Skip sits off to the right, deliberately smaller and quieter than Enter.
+  const sideways = INTRO.width * 0.34;
+  introSkip.position.set(
+    x + sideways * Math.cos(yaw),
+    -drop - 0.95,
+    z - sideways * Math.sin(yaw)
+  );
+  introSkipLabel.position.set(
+    x + sideways * Math.cos(yaw),
+    -drop - 0.5,
+    z - sideways * Math.sin(yaw)
+  );
+  introSkipLabel.rotation.y = yaw;
+  introSkipLabel.rotation.x = 0;
+  introSkipLabel.rotation.z = 0;
 }
 
 async function enterFromIntro() {
@@ -606,10 +675,14 @@ async function enterFromIntro() {
     introPick?.dispose(false, true);
     introBall?.dispose(false, true);
     introLabel?.dispose(false, true);
+    introSkip?.dispose(false, true);
+    introSkipLabel?.dispose(false, true);
     introPlane = null;
     introPick = null;
     introBall = null;
     introLabel = null;
+    introSkip = null;
+    introSkipLabel = null;
     inIntro = false;
     currentPanel = null;
 
@@ -681,9 +754,6 @@ scene.createDefaultEnvironment({ createSkybox: false, createGround: false });
 // Browser speech synthesis: no keys, no cost, no network. Robotic compared to
 // ElevenLabs, but it proves the flow before we add a paid voice.
 
-const GREETING =
-  "Hello, and welcome to the Banking Hub. Take your time having a look " +
-  "around. When you're ready, I can show you the counter or the private room.";
 
 let speaking = false;
 
@@ -738,9 +808,95 @@ function speak(text: string) {
 // --- Avatar ----------------------------------------------------------------
 
 let avatarRoot: Mesh | null = null;
+let avatarBaseYaw = 0;
 let hasGreeted = false;
 let talkClip: any = null;
 let idleClip: any = null;
+let allClips: any[] = [];
+let gestureClip: any = null;
+
+/**
+ * Which clip in the GLB is which. Matched as a case-insensitive substring of
+ * the action name, so "stand-talk" finds "Armature.002|stand-talk-378997".
+ *
+ * The two pointing motions come from the same ActorCore source, so mirroring
+ * does not change the name — both arrive as "meeting_presenter_m_270762". The
+ * only thing separating them is Blender's armature prefix, which is assigned
+ * in the order the files were merged:
+ *
+ *   Armature.003  final-point-left.fbx
+ *   Armature.004  final-point-right.fbx
+ *
+ * That means the merge order matters. If you re-merge with the files in a
+ * different order, these two need swapping.
+ */
+const CLIPS = {
+  idle: "idle",
+  talk: "stand-talk",
+  pointRight: "armature.003",  // she points to HER right
+};
+
+function findClip(fragment: string): any {
+  if (!fragment) return null;
+  const needle = fragment.toLowerCase();
+  return allClips.find((g) => String(g.name).toLowerCase().includes(needle)) ?? null;
+}
+
+/**
+ * Plays a gesture once, then returns to whichever loop belongs to her current
+ * state. Gestures interrupt the talking loop rather than blending with it —
+ * Babylon can blend animation groups, but the result on this rig is muddier
+ * than a clean swap.
+ */
+function playGesture(fragment: string) {
+  const clip = findClip(fragment);
+  if (!clip) {
+    console.warn(`Gesture clip not found: ${fragment}`);
+    return;
+  }
+
+  if (gestureClip === clip) return;
+
+  talkClip?.stop();
+  idleClip?.stop();
+  gestureClip?.stop();
+
+  gestureClip = clip;
+  clip.stop();
+  // start() rather than play(): play can inherit a loop flag set by an earlier
+  // start(true), and a looping gesture never ends — which leaves her stuck in
+  // it for the rest of the session.
+  clip.start(false, 1.0, clip.from, clip.to, false);
+  if (avatarRoot) {
+    avatarRoot.rotation.y =
+      avatarBaseYaw + (AVATAR.gestureYawOffset * Math.PI) / 180;
+  }
+  console.log("Gesture:", clip.name);
+
+  let restored = false;
+
+  const restore = () => {
+    if (restored) return;
+    restored = true;
+    if (avatarRoot) avatarRoot.rotation.y = avatarBaseYaw;
+    gestureClip = null;
+    clip.stop();
+
+    if (convaiSpeaking || speaking) {
+      talkClip?.start(true);
+    } else {
+      idleClip?.start(true);
+    }
+  };
+
+  clip.onAnimationGroupEndObservable.addOnce(restore);
+
+  // Belt and braces: if the end observable does not fire — and on some rigs it
+  // does not — restore on a timer worked out from the clip's own length.
+  const fps = clip.targetedAnimations?.[0]?.animation?.framePerSecond ?? 60;
+  const durationMs = Math.max(600, ((clip.to - clip.from) / fps) * 1000);
+  setTimeout(restore, durationMs + 300);
+}
 // --- Blendshapes -----------------------------------------------------------
 // ActorCore ships the ARKit 52 as A01_Brow_Inner_Up … A51_Mouth_Stretch_Right,
 // alongside its own Reallusion set. Stripping the index prefix, dropping the
@@ -838,23 +994,29 @@ async function updateAvatar(node: NodeConfig) {
 
     root.rotationQuaternion = null;
     root.rotation.y = yaw + (AVATAR.faceOffset * Math.PI) / 180;
+    avatarBaseYaw = root.rotation.y;
     root.scaling.setAll(AVATAR.scale);
 
-      // Two clips arrive: the real motion and an empty "Default" placeholder.
-    // Pick the longest one — the placeholder has zero duration.
-      const clips = [...result.animationGroups]
-      .filter((g) => g.to - g.from > 0.1)
-      .sort((a, b) => (b.to - b.from) - (a.to - a.from));
+    // Every real clip is kept, so gestures can be played by name later. The
+    // empty "Default" placeholder has zero duration and is dropped.
+    allClips = [...result.animationGroups].filter((g) => g.to - g.from > 0.1);
 
-    talkClip = clips[0] ?? null;
-    idleClip = clips[1] ?? null;
+    console.log("Clips in the model:", allClips.map((g) => g.name).join(" | "));
+
+    // Matched by name where possible; if a name is not found, fall back to
+    // longest-is-talking so a model without the expected clips still works.
+    const byLength = [...allClips].sort((a, b) => (b.to - b.from) - (a.to - a.from));
+
+    talkClip = findClip(CLIPS.talk) ?? byLength[0] ?? null;
+    idleClip = findClip(CLIPS.idle) ?? byLength[1] ?? null;
 
     result.animationGroups.forEach((g) => g.stop());
     idleClip?.start(true);
 
     console.log(
       "talk:", talkClip?.name ?? "none",
-      "idle:", idleClip?.name ?? "none"
+      "idle:", idleClip?.name ?? "none",
+      "point right:", findClip(CLIPS.pointRight)?.name ?? "none"
     );
 
     avatarRoot = root;
@@ -889,6 +1051,18 @@ const isInteractive = (mesh: any) =>
 let preSurveyDone = false;
 
 function activate(mesh: any) {
+  if (String(mesh?.name ?? "") === "intro:skip") {
+    // Straight in: no baseline survey, no welcome, no board or map. The cues
+    // are marked as seen so they cannot fire later over something else.
+    introSkipped = true;
+    preSurveyDone = true;
+    seenCues.add("board");
+    seenCues.add("map");
+    console.log("Introduction skipped.");
+    enterFromIntro();
+    return;
+  }
+
   if (handleChequePick(mesh)) return;
   if (handleSurveyPick(mesh)) return;
 
@@ -1322,7 +1496,13 @@ async function startConversation() {
   
 
     console.log("Convai connected.");
-  setTimeout(() => {
+    // Suppressed when the customer skipped the introduction — she would
+    // otherwise deliver the whole welcome over whatever they do next.
+    setTimeout(() => {
+      if (introSkipped) {
+        console.log("Welcome suppressed — introduction was skipped.");
+        return;
+      }
       (client as any).sendUserTextMessage?.("Hello, I've just arrived.");
     }, 1500);
     setInterval(() => {
@@ -1545,15 +1725,57 @@ scene.onBeforeRenderObservable.add(() => {
 
   for (const message of messages) {
     const type = String((message as any)?.type ?? "");
-
-    // Only her side. Your own speech would otherwise fire the video.
-    if (!type.includes("bot")) continue;
-
     const id = String((message as any)?.id ?? "");
+
+    // The customer's own side: taken as instructions to move, so they can ask
+    // to be taken somewhere instead of hunting for the marker.
+    if (type.includes("user")) {
+      if (handledSpeech.has(id)) continue;
+      handledSpeech.add(id);
+
+      const said = String((message as any)?.content ?? "").toLowerCase();
+
+      // An answer to the closing survey takes precedence over anything else
+      // they might have said in the same breath.
+      if (postSurveyPending) {
+        console.log("Awaiting survey answer, heard:", said);
+        if (handleSurveyAnswer(said)) continue;
+      }
+
+      routeSpokenNavigation(said);
+      continue;
+    }
+
+    if (!type.includes("bot")) continue;
     if (seenCues.has(id)) continue;
 
     const text = String((message as any)?.content ?? "").toLowerCase();
     if (!text) continue;
+
+    // Gestures. She may say either line more than once in a session, so these
+    // are not added to seenCues — only guarded against retriggering while the
+    // same gesture is already playing.
+    // One gesture per message. Without this the loop rescans the same message
+    // twice a second, and the moment a gesture finishes it retriggers off the
+    // same text — which reads as her stuttering through half the motion over
+    // and over.
+    if (!gesturedMessages.has(id)) {
+      for (const gesture of GESTURE_CUES) {
+        if (!text.includes(gesture.cue)) continue;
+
+        gesturedMessages.add(id);
+
+        const talkingNow =
+          (convai as any)?.blendshapeQueue?.isBotSpeaking?.() ?? false;
+
+        if (talkingNow) {
+          playGesture(gesture.clip);
+        } else {
+          queuedGesture = gesture.clip;
+        }
+        break;
+      }
+    }
 
     if (!seenCues.has("cheque") && text.includes("how to deposit a cheque")) {
       seenCues.add("cheque");
@@ -1591,12 +1813,48 @@ scene.onBeforeRenderObservable.add(() => {
       }
     }
 
+    // Her goodbye ends the session, whatever the customer said to prompt it.
+    // Matching only the customer's refusal missed any phrasing not in the
+    // list; she understands them all, so her farewell is the better signal.
+    if (
+      seenCues.has("post") &&
+      !seenCues.has("farewell") &&
+      FAREWELL_CUES.some((p) => text.includes(p))
+    ) {
+      seenCues.add("farewell");
+      postSurveyPending = false;
+
+      // A queued survey must be cancelled, or it appears at the same moment
+      // the page resets.
+      if (postSurveyTimer) {
+        clearTimeout(postSurveyTimer);
+        postSurveyTimer = 0;
+        console.log("Queued survey cancelled — she is saying goodbye.");
+      }
+
+      console.log("She said goodbye — waiting for her to finish.");
+
+      // A fixed delay cut her off mid-sentence. The observer below resets once
+      // she actually stops talking; this is only a backstop in case she never
+      // does.
+      awaitingFarewell = true;
+      setTimeout(() => {
+        if (awaitingFarewell) {
+          console.log("Farewell backstop reached — resetting.");
+          window.location.reload();
+        }
+      }, 30000);
+    }
+
+    // She asks permission for the closing questions. Nothing appears until the
+    // customer actually answers — starting on her question alone put the
+    // survey up whether they agreed or not.
     if (!seenCues.has("post") && text.includes("a few short questions")) {
       seenCues.add("post");
       hideServiceBoard();
       hideMap();
-      // Let her finish asking before the questions appear.
-      setTimeout(() => startSurvey("post"), 15000);
+      postSurveyPending = true;
+      console.log("Closing survey offered — waiting for an answer.");
     }
 
     const cue = VIDEO_CUES.find((c) => text.includes(c.phrase));
@@ -1621,6 +1879,198 @@ scene.onBeforeRenderObservable.add(() => {
   }
 });
 
+
+// --- Gestures --------------------------------------------------------------
+// She faces the customer, so her right is their left. "Look to your left"
+// therefore wants the clip where she points to her own right.
+
+const GESTURE_CUES: { cue: string; clip: string }[] = [
+  { cue: "look to your left", clip: CLIPS.pointRight },
+  // No left-pointing clip in CLIPS, so the private room line has no gesture.
+  // Add pointLeft back and restore this to give it one:
+  //   { cue: "look to your right", clip: CLIPS.pointLeft },
+];
+
+let queuedGesture: string | null = null;
+
+// Messages that have already produced a gesture, so a long reply cannot set
+// the same one going again on the next pass.
+const gesturedMessages = new Set<string>();
+
+// --- Closing survey consent ------------------------------------------------
+
+let postSurveyPending = false;
+
+// Anything she says when winding the conversation up.
+const FAREWELL_CUES = [
+  "have a lovely day",
+  "have a good day",
+  "have a nice day",
+  "take care",
+  "goodbye",
+  "good bye",
+  "bye for now",
+  "look after yourself",
+  "all the best",
+];
+
+const SAID_YES = [
+  "yes",
+  "yeah",
+  "yep",
+  "sure",
+  "of course",
+  "go ahead",
+  "okay",
+  "ok",
+  "alright",
+  "all right",
+  "happy to",
+  "why not",
+  "that's fine",
+  "thats fine",
+  "no problem",
+];
+
+const SAID_NO = [
+  "no thank",
+  "no thanks",
+  "not really",
+  "rather not",
+  "i'd rather",
+  "id rather",
+  "not now",
+  "another time",
+  "maybe later",
+  "i'm done",
+  "im done",
+];
+
+let postSurveyTimer = 0;
+
+// Set when she starts saying goodbye; the page resets once she stops talking.
+let awaitingFarewell = false;
+
+/** Whole words only. "ok" as a substring matched "okay, goodbye" as a yes. */
+function saidAny(said: string, phrases: string[]): boolean {
+  return phrases.some((phrase) => {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${escaped}\\b`).test(said);
+  });
+}
+
+/**
+ * Returns true when the reply was an answer to the survey offer, so the caller
+ * knows not to treat it as a navigation request as well.
+ */
+function handleSurveyAnswer(said: string): boolean {
+  // A goodbye is a refusal, whatever else is wrapped around it. Checked first,
+  // because "okay, goodbye" reads as agreement to a naive yes match.
+  if (saidAny(said, FAREWELL_CUES) || saidAny(said, SAID_NO) || said.trim() === "no") {
+    postSurveyPending = false;
+    console.log("Closing survey declined.");
+    // Her own reply handles the goodbye; the farewell cue above then brings
+    // us back to the street.
+    return true;
+  }
+
+  if (saidAny(said, SAID_YES)) {
+    postSurveyPending = false;
+    console.log("Closing survey accepted.");
+    // Long enough for her to acknowledge before the questions appear.
+    postSurveyTimer = window.setTimeout(() => {
+      postSurveyTimer = 0;
+      startSurvey("post");
+    }, 4000);
+    return true;
+  }
+
+  return false;
+}
+
+// --- Spoken navigation -----------------------------------------------------
+// The customer can ask to be taken somewhere rather than finding the marker.
+// Phrases are matched loosely, because transcription is imperfect and people
+// do not phrase things the way a menu expects.
+
+const handledSpeech = new Set<string>();
+
+// Asking to be moved needs an actual request, not just a mention. Without the
+// verb, "show me how to pay in a cheque at the counter" would walk the
+// customer to the counter when all they wanted was the demonstration.
+const MOVE_INTENT = [
+  "take me",
+  "go to",
+  "can we go",
+  "let's go",
+  "lets go",
+  "bring me",
+  "walk me",
+  "show me the",
+  "i want to visit",
+  "i'd like to see the",
+  "id like to see the",
+];
+
+const GO_BACK = [
+  "take me back",
+  "go back",
+  "back to the hub",
+  "back to the banking hub",
+  "please exit",
+  "leave the room",
+  "come back",
+];
+
+const GO_PRIVATE = [
+  "private room",
+  "private meeting",
+  "meeting room",
+  "discussion room",
+];
+
+const GO_COUNTER = [
+  "counter",
+  "transaction counter",
+  "account counter",
+  "account support",
+];
+
+function routeSpokenNavigation(said: string) {
+  if (!said) return;
+
+  // Never move them mid-walkthrough — they are partway through the phone
+  // screens and would lose their place.
+  if (isChequeVisible()) return;
+
+  // Back is checked first and needs no verb: "take me back from the counter"
+  // mentions both, and leaving is what they actually asked for.
+  if (GO_BACK.some((p) => said.includes(p))) {
+    if (currentNode.id !== "entry" || inIntro) {
+      console.log("Spoken navigation: back to the hub.");
+      goToNode("entry");
+    }
+    return;
+  }
+
+  if (!MOVE_INTENT.some((p) => said.includes(p))) return;
+
+  if (GO_PRIVATE.some((p) => said.includes(p))) {
+    if (currentNode.id !== "meeting") {
+      console.log("Spoken navigation: private room.");
+      goToNode("meeting");
+    }
+    return;
+  }
+
+  if (GO_COUNTER.some((p) => said.includes(p))) {
+    if (currentPanel?.id !== "branch") {
+      console.log("Spoken navigation: counter.");
+      goToNode("branch");
+    }
+  }
+}
+
 // Queued screens appear the moment she stops speaking. Every cue line is the
 // last thing she says in its turn, so this lands on the right beat without
 // guessing at how long her speech takes.
@@ -1636,12 +2086,27 @@ scene.onBeforeRenderObservable.add(() => {
   // top of it. The board cue is the last thing in its turn, so that one waits
   // for her to fall silent instead.
   if (talking) {
+    if (queuedGesture) {
+      const clip = queuedGesture;
+      queuedGesture = null;
+      playGesture(clip);
+    }
+
     if (mapQueued) {
       mapQueued = false;
       hideServiceBoard();
       showMap();
       console.log("Map shown as she begins the location.");
     }
+    return;
+  }
+
+  // She has stopped. If that was her goodbye, the session is over.
+  if (awaitingFarewell) {
+    awaitingFarewell = false;
+    console.log("She has finished — returning to the street.");
+    // A short beat so the last word does not clip against the reset.
+    setTimeout(() => window.location.reload(), 1200);
     return;
   }
 
@@ -1658,10 +2123,8 @@ scene.onBeforeRenderObservable.add(() => {
     setTimeout(() => {
       const c = convai as any;
       if (!c) return;
-      console.log("Prompting her toward the map.");
-      c.sendUserTextMessage?.(
-        "Where is the Banking Hub, and can you show me on a map?"
-      );
+      console.log("Prompting her onward to the counters.");
+      c.sendUserTextMessage?.("Thanks, I've read that. What's next?");
     }, BOARD_READ_MS);
 
     return;

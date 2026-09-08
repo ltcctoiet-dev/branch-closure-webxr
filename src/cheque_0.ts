@@ -22,6 +22,7 @@ const PHONE = {
   distance: 2.0,
   width: 0.7,      // screen width in metres — large, but VR text needs it
   aspect: 2.05,    // height as a multiple of width
+  alpha: 0.7,     // screen opacity — lower lets the hub show through
 };
 
 const CAPTION = {
@@ -34,7 +35,7 @@ const CAPTION = {
 /**
  * Who narrates the steps.
  *
- *   "convai"  — she reads each step. Costs one interaction per step (eleven
+ *   "convai"  — she reads each step. Costs one interaction per step (fifteen
  *               per run) and adds a couple of seconds of latency on every tap.
  *   "browser" — the built-in voice. Free and instant, but a different voice
  *               from hers, which is noticeable.
@@ -45,20 +46,19 @@ const NARRATION: "convai" | "browser" | "none" = "convai";
 
 /** One entry per image, in order. */
 const STEPS: string[] = [
-  "Open the everyday space, then the three-dot menu beside the currentaccount you want to pay into.",
+  "Open the everyday space, then the three-dot menu beside the current account you want to pay into.",
   "Choose Deposit cheque.",
-  "Enter the amount. Up to £10,000 per cheque, £10,000 a day. You can add a reference if it helps you remember what it was for. Now click on Camera icon which says Front of Cheque ",
+  "Enter the amount. Up to £10,000 per cheque, £10,000 a day. Now tap the camera icon marked Front of cheque.",
   "Allow the app to use your camera if it asks.",
-  "Lay the cheque on a flat, dark surface. Hold the phone level and directly above it. When the green border appears, hold still while it scans, click on capture icon",
-  "Press Use to continue or Retake if it was blurry.",
-  "Choose Back of cheque.",
+  "Lay the cheque on a flat, dark surface. When the green border appears, hold still and tap the capture button.",
+  "Press Use to continue, or Retake if it came out blurry.",
+  "Now choose Back of cheque.",
   "Do the same again, even if that side is blank.",
-  "Press Use to continue or Retake if it was blurry.",
+  "Press Use to continue, or Retake if it came out blurry.",
   "Select Review deposit.",
   "Check the details, then select Confirm.",
   "That's it. The money usually reaches your account within three working days. Keep the cheque until it does.",
-  "To check on a deposit later, open the three-dot menu again.",
-  "Choose Deposit cheque.",
+  "To check on a deposit later, open the three-dot menu again and choose Deposit cheque.",
   "Then select Deposit history to see how it's progressing.",
 ];
 
@@ -255,6 +255,7 @@ function showStep(step: number) {
   material.backFaceCulling = false;
   // App screenshots are light; lift them so they read in a dim room.
   material.emissiveColor.set(1.15, 1.15, 1.15);
+  material.alpha = PHONE.alpha;
   screen.material = material;
 
   place(screen, 0, 0);
